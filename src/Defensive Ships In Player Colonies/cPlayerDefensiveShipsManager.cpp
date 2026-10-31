@@ -75,7 +75,10 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	float reinforeTimeSeconds;
 	App::Property::GetFloat(propListSpaceCombat.get(), 0x05C2CBD6, reinforeTimeSeconds);
 	reinforceTime = reinforeTimeSeconds * 1000;
-
+	playerOutpostDefenders   = 5;         // Было 2 корабля (на бесплодных планетах T0)
+	playerColonyDefenders    = 10;         // Было 3 корабля (на развитых колониях T1, T2, T3)
+	playerHomeworldDefenders = 20;        // Было 5 кораблей (на родной планете / метрополии)
+	reinforceTime            = 20 * 1000; // Было 60 сек (новый корабль строится каждые 20 секунд)
 }
 
 void cPlayerDefensiveShipsManager::Dispose() {

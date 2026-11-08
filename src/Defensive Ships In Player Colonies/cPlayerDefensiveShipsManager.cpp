@@ -176,20 +176,20 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 	// 1. Базовое здоровье по Философии (Архетипу)
 	float baseHealth = 600.0f;
 	switch (empire->mArchetype) {
-		case Archetype::Warrior:
-		case Archetype::Zealot:
-		case Archetype::Knight:
+		case Archetypes::kArchetypeWarrior:
+		case Archetypes::kArchetypeZealot:
+		case Archetypes::kArchetypeKnight:
 			baseHealth = 800.0f;
 			break;
-		case Archetype::Scientist:
-		case Archetype::Trader:
-		case Archetype::Ecologist:
+		case Archetypes::kArchetypeScientist:
+		case Archetypes::kArchetypeTrader:
+		case Archetypes::kArchetypeEcologist:
 			baseHealth = 600.0f;
 			break;
-		case Archetype::Bard:
-		case Archetype::Shaman:
-		case Archetype::Diplomat:
-		case Archetype::Wanderer:
+		case Archetypes::kArchetypeBard:
+		case Archetypes::kArchetypeShaman:
+		case Archetypes::kArchetypeDiplomat:
+		case Archetypes::kArchetypePlayerWanderer:
 			baseHealth = 450.0f;
 			break;
 		default:
@@ -225,8 +225,8 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 				turretBonus += city->mTurrets.size() * 15.0f;
 
 				// Проверка счастья и бунта
-				if (city->mHappiness > 0) happyCities++;
-				if (city->mHappiness < 0) riotingCities++;
+				if (city->mUnhappyTicks == 0) happyCities++;
+				if (city->mUnhappyTicks > 0) riotingCities++;
 			}
 		}
 
@@ -239,13 +239,7 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 		}
 	}
 
-	// 4. Бонус Супербашни (Uber Turret)
-	float uberTurretBonus = 0.0f;
-	if (planet->HasUberTurret()) {
-		uberTurretBonus = 300.0f;
-	}
-
-	float finalHealth = (baseHealth + spiceBonus + turretBonus + uberTurretBonus) * happinessMultiplier;
+	float finalHealth = (baseHealth + spiceBonus + turretBonus) * happinessMultiplier;
 	return finalHealth;
 }
 
@@ -259,8 +253,8 @@ cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 		// Применяем рассчитанное ХП
 		cPlanetRecord* activePlanet = GetActivePlanetRecord();
 		float customHP = CalculateShipHealth(activePlanet);
-		ufo->mHealthPoints = customHP;
-		ufo->mMaxHealthPoints = customHP;
+		ufo->SetHitPoints(customHP);
+		ufo->SetMaxHitPoints(customHP);
 
 		// Списание стоимости сборки (1000 спорлингов)
 		cEmpire* empire = GetPlayerEmpire();
@@ -324,11 +318,6 @@ int cPlayerDefensiveShipsManager::GetMaxDefenders(cPlanetRecord* planet) {
 	else if (planet->mType == PlanetType::T0) baseDefenders = playerOutpostDefenders;
 
 	int rawTotal = baseDefenders + (colonyCount - 1) * stepBonus;
-
-	// Бонус к лимиту от Супербашни
-	if (planet->HasUberTurret()) {
-		rawTotal += 5;
-	}
 
 	if (rawTotal > softCapThreshold) {
 		float excess = static_cast<float>(rawTotal - softCapThreshold);

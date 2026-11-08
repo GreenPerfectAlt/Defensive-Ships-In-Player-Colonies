@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Spore\BasicIncludes.h>
-#include <Spore\Simulator\cCity.h>
 
 using namespace Simulator;
 
@@ -38,6 +37,10 @@ public:
 	static cPlayerDefensiveShipsManager* Get();
 
 	cGameDataUFO* SpawnPlayerDefensiveShip();
+
+	// Метод расчета индивидуального здоровья корабля по всем параметрам
+	float CalculateShipHealth(cPlanetRecord* planet);
+
 	int GetColonyCount(cPlanetRecord* planet);
 	int GetMaxDefenders(cPlanetRecord* planet);
 	int GetSpawnBatch(cPlanetRecord* planet);

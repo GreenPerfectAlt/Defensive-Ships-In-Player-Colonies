@@ -94,6 +94,37 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 	if (IsSpaceGame()) {
 		elapsedTime += deltaGameTime;
 
+		// Мгновенный доспавн кораблей при постройке новой ратуши прямо на планете
+		if (GetCurrentContext() == SpaceContext::Planet) {
+			cPlanetRecord* activePlanet = GetActivePlanetRecord();
+			if (activePlanet && activePlanet->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) {
+				auto itCol = planetColonyCounts.find(activePlanet);
+				int oldColonies = (itCol != planetColonyCounts.end()) ? itCol->second : 0;
+
+				if (oldColonies > 0) {
+					int oldMax = GetMaxDefenders(activePlanet);
+					int currentCities = GetColonyCount(activePlanet);
+
+					if (currentCities > oldColonies) {
+						int newMax = GetMaxDefenders(activePlanet);
+						int diff = newMax - oldMax;
+
+						if (diff > 0) {
+							auto itDef = planetDefenderShips.find(activePlanet);
+							if (itDef != planetDefenderShips.end()) {
+								itDef->second += diff;
+							}
+							for (int i = 0; i < diff; i++) {
+								SpawnPlayerDefensiveShip();
+							}
+						}
+					}
+				} else {
+					GetColonyCount(activePlanet);
+				}
+			}
+		}
+
 		if (!planetsToReinforce.empty() && elapsedTime >= planetsToReinforce.front().timeToReinforce) {
 			cPlanetRecordPtr planet = planetsToReinforce.front().planet;
 			planetsToReinforce.pop();
@@ -113,6 +144,7 @@ void cPlayerDefensiveShipsManager::OnModeEntered(uint32_t previousModeID, uint32
 			planetsToReinforce.pop();
 		}
 		planetDefenderShips.clear();
+		planetColonyCounts.clear();
 	}
 	cStrategy::OnModeEntered(previousModeID, newModeID);
 }
@@ -176,7 +208,13 @@ int cPlayerDefensiveShipsManager::GetColonyCount(cPlanetRecord* planet) {
 int cPlayerDefensiveShipsManager::GetMaxDefenders(cPlanetRecord* planet) {
 	if (!planet) return playerColonyDefenders;
 
-	int colonyCount = GetColonyCount(planet);
+	int colonyCount = 1;
+	auto it = planetColonyCounts.find(planet);
+	if (it != planetColonyCounts.end() && it->second > 0) {
+		colonyCount = it->second;
+	} else {
+		colonyCount = GetColonyCount(planet);
+	}
 
 	int stepBonus = 1;
 	if (planet->mType == PlanetType::T1) stepBonus = 2;

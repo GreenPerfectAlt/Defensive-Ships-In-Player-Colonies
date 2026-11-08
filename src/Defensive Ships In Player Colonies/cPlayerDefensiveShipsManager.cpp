@@ -222,7 +222,7 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 
 	float finalHealth = baseHealth + spiceBonus + turretBonus;
 	return finalHealth;
-
+}
 
 cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 	int* pointerToPoliticalId = &GetPlayerEmpire()->mPoliticalID;

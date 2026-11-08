@@ -80,7 +80,6 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	App::Property::GetFloat(propListSpaceCombat.get(), 0x05C2CBD6, reinforeTimeSeconds);
 	reinforceTime = static_cast<int>(reinforeTimeSeconds * 1000);
 
-	// Базовые параметры
 	playerOutpostDefenders   = 5;
 	playerColonyDefenders    = 10;
 	playerHomeworldDefenders = 20;
@@ -113,6 +112,7 @@ void cPlayerDefensiveShipsManager::OnModeEntered(uint32_t previousModeID, uint32
 			planetsToReinforce.pop();
 		}
 		planetDefenderShips.clear();
+		planetColonyCounts.clear();
 	}
 	cStrategy::OnModeEntered(previousModeID, newModeID);
 }
@@ -142,11 +142,44 @@ cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 	return STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)), cGameDataUFO*, Args(UfoType, int*, ResourceKey*), Args(UfoType::Defender, pointerToPoliticalId, ufoKey));
 }
 
+int cPlayerDefensiveShipsManager::GetColonyCount(cPlanetRecord* planet) {
+	if (!planet) return 1;
+
+	// При нахождении на планете считываем реальные объекты городов в памяти
+	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
+		int count = 0;
+		const auto& cities = Simulator::GetData<cCity>();
+		for (const auto& city : cities) {
+			if (city) {
+				count++;
+			}
+		}
+		if (count > 0) {
+			planetColonyCounts[cPlanetRecordPtr(planet)] = count;
+			return count;
+		}
+	}
+
+	// Если летим в открытом космосе, берем последнее сохраненное значение
+	auto it = planetColonyCounts.find(planet);
+	if (it != planetColonyCounts.end() && it->second > 0) {
+		return it->second;
+	}
+
+	// Фолбэк по умолчанию, если планета еще не посещалась в текущей сессии
+	int defaultColonies = 1;
+	if (planet->mbHomeWorld) defaultColonies = 3;
+	else if (planet->mType == PlanetType::T1) defaultColonies = 1;
+	else if (planet->mType == PlanetType::T2) defaultColonies = 2;
+	else if (planet->mType == PlanetType::T3) defaultColonies = 3;
+
+	return defaultColonies;
+}
+
 int cPlayerDefensiveShipsManager::GetMaxDefenders(cPlanetRecord* planet) {
 	if (!planet) return playerColonyDefenders;
 
-	int colonyCount = static_cast<int>(planet->mTechLevel);
-	if (colonyCount < 1) colonyCount = 1;
+	int colonyCount = GetColonyCount(planet);
 
 	int stepBonus = 1;
 	if (planet->mType == PlanetType::T1) stepBonus = 2;
@@ -171,8 +204,7 @@ int cPlayerDefensiveShipsManager::GetMaxDefenders(cPlanetRecord* planet) {
 int cPlayerDefensiveShipsManager::GetSpawnBatch(cPlanetRecord* planet) {
 	if (!planet) return 1;
 
-	int colonyCount = static_cast<int>(planet->mTechLevel);
-	if (colonyCount < 1) colonyCount = 1;
+	int colonyCount = GetColonyCount(planet);
 
 	int baseBatch = 1;
 	if (planet->mType == PlanetType::T1 || planet->mType == PlanetType::T2) baseBatch = 2;
@@ -198,8 +230,7 @@ int cPlayerDefensiveShipsManager::GetSpawnBatch(cPlanetRecord* planet) {
 int cPlayerDefensiveShipsManager::GetDynamicReinforceTime(cPlanetRecord* planet) {
 	if (!planet) return reinforceTime;
 
-	int colonyCount = static_cast<int>(planet->mTechLevel);
-	if (colonyCount < 1) colonyCount = 1;
+	int colonyCount = GetColonyCount(planet);
 
 	float speedMultiplier = 1.0f / (1.0f + (colonyCount - 1) * 0.05f);
 	if (speedMultiplier < 0.5f) speedMultiplier = 0.5f;
@@ -280,6 +311,9 @@ void cPlayerDefensiveShipsManager::AddDefenderToPlanet(cPlanetRecord* planetToRe
 }
 
 void cPlayerDefensiveShipsManager::ManagePlanetDefenders(cPlanetRecord* planet) {
+	if (planet) {
+		GetColonyCount(planet);
+	}
 	auto it = planetDefenderShips.find(planet);
 	int numberOfDefenders = (it != planetDefenderShips.end()) ? it->second : GetMaxDefenders(planet);
 

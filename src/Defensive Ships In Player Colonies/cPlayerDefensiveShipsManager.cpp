@@ -93,6 +93,35 @@ void cPlayerDefensiveShipsManager::Dispose() {
 void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 	if (IsSpaceGame()) {
 		elapsedTime += deltaGameTime;
+
+		// Автосинхронизация при первом подлете к колонии
+		if (GetCurrentContext() == SpaceContext::Planet) {
+			cPlanetRecord* activePlanet = GetActivePlanetRecord();
+			if (activePlanet && activePlanet->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) {
+				int realCount = GetColonyCount(activePlanet);
+				auto it = planetDefenderShips.find(activePlanet);
+				if (it == planetDefenderShips.end()) {
+					int maxDef = GetMaxDefenders(activePlanet);
+					int currentInSpace = 0;
+					
+					const auto& ufos = Simulator::GetData<cGameDataUFO>();
+					for (const auto& ufo : ufos) {
+						if (ufo && ufo->mUFOType == static_cast<int>(UfoType::Defender) && ufo->mPoliticalID == GetPlayerEmpireID()) {
+							currentInSpace++;
+						}
+					}
+
+					if (currentInSpace < maxDef) {
+						int toSpawn = maxDef - currentInSpace;
+						for (int i = 0; i < toSpawn; i++) {
+							SpawnPlayerDefensiveShip();
+						}
+					}
+					planetDefenderShips[cPlanetRecordPtr(activePlanet)] = maxDef;
+				}
+			}
+		}
+
 		if (!planetsToReinforce.empty() && elapsedTime >= planetsToReinforce.front().timeToReinforce) {
 			cPlanetRecordPtr planet = planetsToReinforce.front().planet;
 			planetsToReinforce.pop();
@@ -112,7 +141,6 @@ void cPlayerDefensiveShipsManager::OnModeEntered(uint32_t previousModeID, uint32
 			planetsToReinforce.pop();
 		}
 		planetDefenderShips.clear();
-		planetColonyCounts.clear();
 	}
 	cStrategy::OnModeEntered(previousModeID, newModeID);
 }
@@ -145,7 +173,6 @@ cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 int cPlayerDefensiveShipsManager::GetColonyCount(cPlanetRecord* planet) {
 	if (!planet) return 1;
 
-	// При нахождении на планете считываем реальные объекты городов в памяти
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		int count = 0;
 		const auto& cities = Simulator::GetData<cCity>();
@@ -160,13 +187,11 @@ int cPlayerDefensiveShipsManager::GetColonyCount(cPlanetRecord* planet) {
 		}
 	}
 
-	// Если летим в открытом космосе, берем последнее сохраненное значение
 	auto it = planetColonyCounts.find(planet);
 	if (it != planetColonyCounts.end() && it->second > 0) {
 		return it->second;
 	}
 
-	// Фолбэк по умолчанию, если планета еще не посещалась в текущей сессии
 	int defaultColonies = 1;
 	if (planet->mbHomeWorld) defaultColonies = 3;
 	else if (planet->mType == PlanetType::T1) defaultColonies = 1;

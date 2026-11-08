@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "cPlayerDefensiveShipsManager.h"
+#include <cmath>
 
 cPlayerDefensiveShipsManager* cPlayerDefensiveShipsManager::instance = nullptr;
 
@@ -8,6 +9,7 @@ cPlayerDefensiveShipsManager* cPlayerDefensiveShipsManager::instance = nullptr;
 int cPlayerDefensiveShipsManager::AddRef() {
 	return Simulator::cStrategy::AddRef();
 }
+
 int cPlayerDefensiveShipsManager::Release() {
 	return Simulator::cStrategy::Release();
 }
@@ -20,6 +22,7 @@ bool cPlayerDefensiveShipsManager::Write(Simulator::ISerializerStream* stream)
 {
 	return Simulator::ClassSerializer(this, ATTRIBUTES).Write(stream);
 }
+
 bool cPlayerDefensiveShipsManager::Read(Simulator::ISerializerStream* stream)
 {
 	return Simulator::ClassSerializer(this, ATTRIBUTES).Read(stream);
@@ -54,8 +57,7 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	maxDefenders = readVector[0];
 	App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69D8, readVector);
 	minDefenders = readVector[0];
-	playerColonyDefenders = (maxDefenders + minDefenders + 1) / 2; // Average with rounding up.
-
+	playerColonyDefenders = (maxDefenders + minDefenders + 1) / 2;
 
 	App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69F1, readVector);
 	maxDefenders = readVector[0];
@@ -75,10 +77,13 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	float reinforeTimeSeconds;
 	App::Property::GetFloat(propListSpaceCombat.get(), 0x05C2CBD6, reinforeTimeSeconds);
 	reinforceTime = reinforeTimeSeconds * 1000;
-	playerOutpostDefenders   = 5;         // Было 2 корабля (на бесплодных планетах T0)
-	playerColonyDefenders    = 10;         // Было 3 корабля (на развитых колониях T1, T2, T3)
-	playerHomeworldDefenders = 20;        // Было 5 кораблей (на родной планете / метрополии)
-	reinforceTime            = 20 * 1000; // Было 60 сек (новый корабль строится каждые 20 секунд)
+
+	// Базовые настройки (для 1 города)
+	playerOutpostDefenders   = 5;         // T0 (база)
+	playerColonyDefenders    = 10;        // T1-T3 (база)
+	playerHomeworldDefenders = 20;        // Родной мир (база)
+	reinforceTime            = 20 * 1000; // Базовое время спавна пачки (20 секунд)
+	softCapThreshold         = 50;        // Порог, после которого рост лимита начинает плавно замедляться
 }
 
 void cPlayerDefensiveShipsManager::Dispose() {
@@ -91,7 +96,12 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 		if (!planetsToReinforce.empty() && elapsedTime >= planetsToReinforce.front().timeToReinforce) {
 			cPlanetRecordPtr planet = planetsToReinforce.front().planet;
 			planetsToReinforce.pop();
-			AddDefenderToPlanet(planet.get());
+
+			if (planet) {
+				// Считаем размер пачки с учетом Т-индекса и количества городов
+				int batchSize = GetSpawnBatch(planet.get());
+				AddDefenderToPlanet(planet.get(), batchSize);
+			}
 		}
 	}
 }
@@ -104,7 +114,7 @@ void cPlayerDefensiveShipsManager::OnModeEntered(uint32_t previousModeID, uint32
 		}
 		planetDefenderShips.clear();
 	}
-	cStrategy::OnModeEntered(previousModeID, newModeID); //idk if it is necessary.
+	cStrategy::OnModeEntered(previousModeID, newModeID);
 }
 
 bool cPlayerDefensiveShipsManager::HandleMessage(uint32_t messageID, void* msg) {
@@ -122,7 +132,7 @@ bool cPlayerDefensiveShipsManager::HandleMessage(uint32_t messageID, void* msg) 
 	return true;
 }
 
-cPlayerDefensiveShipsManager* cPlayerDefensiveShipsManager::Get(){
+cPlayerDefensiveShipsManager* cPlayerDefensiveShipsManager::Get() {
 	return instance;
 }
 
@@ -133,20 +143,112 @@ cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 }
 
 int cPlayerDefensiveShipsManager::GetMaxDefenders(cPlanetRecord* planet) {
-	if (planet->mbHomeWorld) {
-		return playerHomeworldDefenders;
+	if (!planet) return playerColonyDefenders;
+
+	// Безопасно считаем все построенные города на планете
+	int colonyCount = static_cast<int>(planet->mTechLevel);
+	if (planet->GetPlanetView() && !planet->GetPlanetView()->mColonies.empty()) {
+		int viewCount = static_cast<int>(planet->GetPlanetView()->mColonies.size());
+		if (viewCount > colonyCount) colonyCount = viewCount;
 	}
-	else if (planet->mType == PlanetType::T0) {
-		return playerOutpostDefenders;
+	if (colonyCount < 1) colonyCount = 1;
+
+	// Множитель за каждый город по терраиндексу
+	int stepBonus = 1; // T0
+	if (planet->mType == PlanetType::T1) stepBonus = 2;
+	else if (planet->mType == PlanetType::T2) stepBonus = 3;
+	else if (planet->mType == PlanetType::T3) stepBonus = 4;
+
+	// Сырой (неограниченный) расчет кораблей
+	int baseDefenders = playerColonyDefenders;
+	if (planet->mbHomeWorld) baseDefenders = playerHomeworldDefenders;
+	else if (planet->mType == PlanetType::T0) baseDefenders = playerOutpostDefenders;
+
+	int rawTotal = baseDefenders + (colonyCount - 1) * stepBonus;
+
+	// Мягкий потолок (Soft Cap) после 50 кораблей:
+	// Ограничений нет, но всё, что выше 50, растет по корню (плавно замедляется)
+	if (rawTotal > softCapThreshold) {
+		float excess = static_cast<float>(rawTotal - softCapThreshold);
+		int diminishedBonus = static_cast<int>(std::sqrt(excess) * 4.0f);
+		return softCapThreshold + diminishedBonus;
 	}
-	else {
-		return playerColonyDefenders;
+
+	return rawTotal;
+}
+
+int cPlayerDefensiveShipsManager::GetSpawnBatch(cPlanetRecord* planet) {
+	if (!planet) return 1;
+
+	int colonyCount = static_cast<int>(planet->mTechLevel);
+	if (planet->GetPlanetView() && !planet->GetPlanetView()->mColonies.empty()) {
+		int viewCount = static_cast<int>(planet->GetPlanetView()->mColonies.size());
+		if (viewCount > colonyCount) colonyCount = viewCount;
 	}
+	if (colonyCount < 1) colonyCount = 1;
+
+	// Базовая пачка от терраиндекса
+	int baseBatch = 1;
+	if (planet->mType == PlanetType::T1 || planet->mType == PlanetType::T2) baseBatch = 2;
+	else if (planet->mType == PlanetType::T3) baseBatch = 3;
+
+	// Каждые 3 дополнительных города дают еще +1 корабль к разовому спавну
+	int colonyBonusBatch = (colonyCount - 1) / 3;
+	int totalBatch = baseBatch + colonyBonusBatch;
+
+	// Если планету прямо сейчас штурмуют и оборона просела ниже 50%,
+	// заводы испытывают перегрузку и выдают в 2 раза меньше кораблей за раз
+	auto it = planetDefenderShips.find(planet);
+	if (it != planetDefenderShips.end()) {
+		int maxDef = GetMaxDefenders(planet);
+		if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
+			if (it->second < (maxDef / 2)) {
+				totalBatch = (totalBatch + 1) / 2;
+			}
+		}
+	}
+
+	if (totalBatch < 1) totalBatch = 1;
+	return totalBatch;
+}
+
+int cPlayerDefensiveShipsManager::GetDynamicReinforceTime(cPlanetRecord* planet) {
+	if (!planet) return reinforceTime;
+
+	int colonyCount = static_cast<int>(planet->mTechLevel);
+	if (planet->GetPlanetView() && !planet->GetPlanetView()->mColonies.empty()) {
+		int viewCount = static_cast<int>(planet->GetPlanetView()->mColonies.size());
+		if (viewCount > colonyCount) colonyCount = viewCount;
+	}
+	if (colonyCount < 1) colonyCount = 1;
+
+	// В мирное время множество городов ускоряют сборку (до -50% времени максимум)
+	float speedMultiplier = 1.0f / (1.0f + (colonyCount - 1) * 0.05f);
+	if (speedMultiplier < 0.5f) speedMultiplier = 0.5f;
+
+	int dynamicTime = static_cast<int>(reinforceTime * speedMultiplier);
+
+	// Эффект осады/захвата: если идет бой на планете, сборка новых кораблей замедляется
+	auto it = planetDefenderShips.find(planet);
+	if (it != planetDefenderShips.end()) {
+		int maxDef = GetMaxDefenders(planet);
+		if (maxDef > 0) {
+			// Чем больше кораблей уничтожено, тем сильнее штраф к времени (вплоть до x2.5 при полном разгроме)
+			float missingRatio = 1.0f - (static_cast<float>(it->second) / static_cast<float>(maxDef));
+			
+			if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
+				float siegePenalty = 1.0f + (missingRatio * 1.5f);
+				dynamicTime = static_cast<int>(dynamicTime * siegePenalty);
+			}
+		}
+	}
+
+	return dynamicTime;
 }
 
 int cPlayerDefensiveShipsManager::GetDefendersOnPlanet(cPlanetRecord* planet) {
 	auto it = planetDefenderShips.find(planet);
-	if (it != planetDefenderShips.end()) { // if it != planetDefenderShips.end() means that the planet is in the map
+	if (it != planetDefenderShips.end()) {
 		return it->second;
 	}
 	else {
@@ -156,37 +258,50 @@ int cPlayerDefensiveShipsManager::GetDefendersOnPlanet(cPlanetRecord* planet) {
 
 void cPlayerDefensiveShipsManager::DecreaseDefendersOnPlanet(cPlanetRecord* planet) {
 	auto it = planetDefenderShips.find(planet);
-	if (it != planetDefenderShips.end()) { // if it != planetDefenderShips.end() means that the planet is in the map
-		it->second--;
+	if (it != planetDefenderShips.end()) {
+		if (it->second > 0) {
+			it->second--;
+		}
 	}
 	else {
 		planetDefenderShips[cPlanetRecordPtr(planet)] = GetMaxDefenders(planet) - 1;
 		planetReinforcementStruct planetReinforcement;
 		planetReinforcement.planet = cPlanetRecordPtr(planet);
-		planetReinforcement.timeToReinforce = elapsedTime + reinforceTime;
+		planetReinforcement.timeToReinforce = elapsedTime + GetDynamicReinforceTime(planet);
 		planetsToReinforce.push(planetReinforcement);
-
 	}
 }
 
-void cPlayerDefensiveShipsManager::AddDefenderToPlanet(cPlanetRecord* planetToReinforce) {
-	auto it = planetDefenderShips.find(planetToReinforce); // If queued for reinforce the planet will always be on the map.
-	if (it != planetDefenderShips.end() && planetToReinforce->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) { // if the player still controls the planet.
-		it->second++;
-		if (it->second >= GetMaxDefenders(planetToReinforce)) {
-			planetDefenderShips.erase(it); // The map only has planets with less than the maximun number of defenders.
+void cPlayerDefensiveShipsManager::AddDefenderToPlanet(cPlanetRecord* planetToReinforce, int countToAdd) {
+	auto it = planetDefenderShips.find(planetToReinforce);
+	if (it != planetDefenderShips.end() && planetToReinforce->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) {
+		int maxDef = GetMaxDefenders(planetToReinforce);
+		int actualSpawned = 0;
+		for (int i = 0; i < countToAdd; i++) {
+			if (it->second < maxDef) {
+				it->second++;
+				actualSpawned++;
+			}
+			else {
+				break;
+			}
+		}
+		if (it->second >= maxDef) {
+			planetDefenderShips.erase(it);
 		}
 		else {
 			planetReinforcementStruct planetReinforcement;
 			planetReinforcement.planet = cPlanetRecordPtr(planetToReinforce);
-			planetReinforcement.timeToReinforce = elapsedTime + reinforceTime;
+			planetReinforcement.timeToReinforce = elapsedTime + GetDynamicReinforceTime(planetToReinforce);
 			planetsToReinforce.push(planetReinforcement);
 		}
 		if (GetCurrentContext() == SpaceContext::Planet && planetToReinforce == GetActivePlanetRecord()) {
-			SpawnPlayerDefensiveShip();
+			for (int i = 0; i < actualSpawned; i++) {
+				SpawnPlayerDefensiveShip();
+			}
 		}
 	}
-	else {
+	else if (it != planetDefenderShips.end()) {
 		planetDefenderShips.erase(it);
 	}
 }
@@ -198,7 +313,7 @@ void cPlayerDefensiveShipsManager::ManagePlanetDefenders(cPlanetRecord* planet) 
 		numberOfDefenders = it->second;
 	}
 	else {
-		numberOfDefenders = GetMaxDefenders(planet); // If the planet isn't in the map it means that the planet has maximum defenders.
+		numberOfDefenders = GetMaxDefenders(planet);
 	}
 	for (int i = 0; i < numberOfDefenders; i++) {
 		SpawnPlayerDefensiveShip();

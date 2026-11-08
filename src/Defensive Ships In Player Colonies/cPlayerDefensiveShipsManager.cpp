@@ -94,7 +94,7 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 	if (IsSpaceGame()) {
 		elapsedTime += deltaGameTime;
 
-		// Мгновенный доспавн кораблей при постройке новой ратуши прямо на планете
+		// Мгновенный доспавн кораблей при возведении новой ратуши
 		if (GetCurrentContext() == SpaceContext::Planet) {
 			cPlanetRecord* activePlanet = GetActivePlanetRecord();
 			if (activePlanet && activePlanet->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) {
@@ -168,10 +168,108 @@ cPlayerDefensiveShipsManager* cPlayerDefensiveShipsManager::Get() {
 	return instance;
 }
 
+// РАСЧЕТ ЗДОРОВЬЯ КОРАБЛЯ: АРХЕТИП + ПРЯНОСТЬ + ТУРЕЛИ + СЧАСТЬЕ + СУПЕРБАШНЯ
+float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
+	cEmpire* empire = GetPlayerEmpire();
+	if (!empire) return 600.0f;
+
+	// 1. Базовое здоровье по Философии (Архетипу)
+	float baseHealth = 600.0f;
+	switch (empire->mArchetype) {
+		case Archetype::Warrior:
+		case Archetype::Zealot:
+		case Archetype::Knight:
+			baseHealth = 800.0f;
+			break;
+		case Archetype::Scientist:
+		case Archetype::Trader:
+		case Archetype::Ecologist:
+			baseHealth = 600.0f;
+			break;
+		case Archetype::Bard:
+		case Archetype::Shaman:
+		case Archetype::Diplomat:
+		case Archetype::Wanderer:
+			baseHealth = 450.0f;
+			break;
+		default:
+			baseHealth = 600.0f;
+			break;
+	}
+
+	if (!planet) return baseHealth;
+
+	// 2. Бонус от редкости Пряности (mSpiceGen)
+	float spiceBonus = 0.0f;
+	uint32_t spiceID = planet->mSpiceGen.instanceID;
+	if (spiceID == 0x0289B841 || spiceID == 0x0289B842) { // Фиолетовая и Розовая пряность
+		spiceBonus = 200.0f;
+	} else if (spiceID == 0x0289B83F || spiceID == 0x0289B840) { // Синяя и Зеленая пряность
+		spiceBonus = 100.0f;
+	}
+
+	// 3. Бонусы городов: Турели на стенах и Счастье
+	float turretBonus = 0.0f;
+	float happinessMultiplier = 1.0f;
+
+	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
+		const auto& cities = Simulator::GetData<cCity>();
+		int happyCities = 0;
+		int riotingCities = 0;
+		int totalCities = 0;
+
+		for (const auto& city : cities) {
+			if (city) {
+				totalCities++;
+				// Каждая башня на стенах ратуши добавляет броню
+				turretBonus += city->mTurrets.size() * 15.0f;
+
+				// Проверка счастья и бунта
+				if (city->mHappiness > 0) happyCities++;
+				if (city->mHappiness < 0) riotingCities++;
+			}
+		}
+
+		if (totalCities > 0) {
+			if (riotingCities > 0) {
+				happinessMultiplier = 0.6f; // Штраф -40% за саботаж при восстании!
+			} else if (happyCities == totalCities) {
+				happinessMultiplier = 1.2f; // Бонус +20% за процветание
+			}
+		}
+	}
+
+	// 4. Бонус Супербашни (Uber Turret)
+	float uberTurretBonus = 0.0f;
+	if (planet->HasUberTurret()) {
+		uberTurretBonus = 300.0f;
+	}
+
+	float finalHealth = (baseHealth + spiceBonus + turretBonus + uberTurretBonus) * happinessMultiplier;
+	return finalHealth;
+}
+
 cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 	int* pointerToPoliticalId = &GetPlayerEmpire()->mPoliticalID;
 	ResourceKey* ufoKey = &GetPlayerEmpire()->mUFOKey;
-	return STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)), cGameDataUFO*, Args(UfoType, int*, ResourceKey*), Args(UfoType::Defender, pointerToPoliticalId, ufoKey));
+
+	cGameDataUFO* ufo = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)), cGameDataUFO*, Args(UfoType, int*, ResourceKey*), Args(UfoType::Defender, pointerToPoliticalId, ufoKey));
+
+	if (ufo) {
+		// Применяем рассчитанное ХП
+		cPlanetRecord* activePlanet = GetActivePlanetRecord();
+		float customHP = CalculateShipHealth(activePlanet);
+		ufo->mHealthPoints = customHP;
+		ufo->mMaxHealthPoints = customHP;
+
+		// Списание стоимости сборки (1000 спорлингов)
+		cEmpire* empire = GetPlayerEmpire();
+		if (empire && empire->mEmpireMoney >= 1000) {
+			empire->mEmpireMoney -= 1000;
+		}
+	}
+
+	return ufo;
 }
 
 int cPlayerDefensiveShipsManager::GetColonyCount(cPlanetRecord* planet) {
@@ -226,6 +324,11 @@ int cPlayerDefensiveShipsManager::GetMaxDefenders(cPlanetRecord* planet) {
 	else if (planet->mType == PlanetType::T0) baseDefenders = playerOutpostDefenders;
 
 	int rawTotal = baseDefenders + (colonyCount - 1) * stepBonus;
+
+	// Бонус к лимиту от Супербашни
+	if (planet->HasUberTurret()) {
+		rawTotal += 5;
+	}
 
 	if (rawTotal > softCapThreshold) {
 		float excess = static_cast<float>(rawTotal - softCapThreshold);

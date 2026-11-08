@@ -207,40 +207,22 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 		spiceBonus = 100.0f;
 	}
 
-	// 3. Бонусы городов: Турели на стенах и Счастье
+	// 3. Бонусы городов: Турели на стенах
 	float turretBonus = 0.0f;
-	float happinessMultiplier = 1.0f;
 
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		const auto& cities = Simulator::GetData<cCity>();
-		int happyCities = 0;
-		int riotingCities = 0;
-		int totalCities = 0;
-
 		for (const auto& city : cities) {
 			if (city) {
-				totalCities++;
-				// Каждая башня на стенах ратуши добавляет броню
+				// Каждая защитная башня на стенах ратуши добавляет +15 HP
 				turretBonus += city->mTurrets.size() * 15.0f;
-
-				// Проверка счастья и бунта
-				if (!city->mbIsRioting) happyCities++;
-				if (city->mbIsRioting) riotingCities++;
-			}
-		}
-
-		if (totalCities > 0) {
-			if (riotingCities > 0) {
-				happinessMultiplier = 0.6f; // Штраф -40% за саботаж при восстании!
-			} else if (happyCities == totalCities) {
-				happinessMultiplier = 1.2f; // Бонус +20% за процветание
 			}
 		}
 	}
 
-	float finalHealth = (baseHealth + spiceBonus + turretBonus) * happinessMultiplier;
+	float finalHealth = baseHealth + spiceBonus + turretBonus;
 	return finalHealth;
-}
+
 
 cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 	int* pointerToPoliticalId = &GetPlayerEmpire()->mPoliticalID;

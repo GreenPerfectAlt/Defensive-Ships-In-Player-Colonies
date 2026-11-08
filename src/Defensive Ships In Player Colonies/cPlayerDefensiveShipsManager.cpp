@@ -178,19 +178,18 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 	switch (empire->mArchetype) {
 		case Archetypes::kArchetypeWarrior:
 		case Archetypes::kArchetypeZealot:
-		case Archetypes::kArchetypeKnight:
-			baseHealth = 800.0f;
+			baseHealth = 1000.0f;
 			break;
 		case Archetypes::kArchetypeScientist:
 		case Archetypes::kArchetypeTrader:
 		case Archetypes::kArchetypeEcologist:
-			baseHealth = 600.0f;
+			baseHealth = 700.0f;
 			break;
 		case Archetypes::kArchetypeBard:
 		case Archetypes::kArchetypeShaman:
 		case Archetypes::kArchetypeDiplomat:
 		case Archetypes::kArchetypePlayerWanderer:
-			baseHealth = 450.0f;
+			baseHealth = 250.0f;
 			break;
 		default:
 			baseHealth = 600.0f;
@@ -225,8 +224,8 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 				turretBonus += city->mTurrets.size() * 15.0f;
 
 				// Проверка счастья и бунта
-				if (city->mUnhappyTicks == 0) happyCities++;
-				if (city->mUnhappyTicks > 0) riotingCities++;
+				if (!city->mbIsRioting) happyCities++;
+				if (city->mbIsRioting) riotingCities++;
 			}
 		}
 
@@ -253,8 +252,8 @@ cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
 		// Применяем рассчитанное ХП
 		cPlanetRecord* activePlanet = GetActivePlanetRecord();
 		float customHP = CalculateShipHealth(activePlanet);
-		ufo->SetHitPoints(customHP);
-		ufo->SetMaxHitPoints(customHP);
+		ufo->mHealthPoints = customHP;
+		ufo->mMaxHealthPoints = customHP;
 
 		// Списание стоимости сборки (1000 спорлингов)
 		cEmpire* empire = GetPlayerEmpire();

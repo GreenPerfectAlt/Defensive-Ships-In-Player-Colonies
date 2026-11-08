@@ -8,7 +8,7 @@ using namespace Simulator;
 
 class cPlayerDefensiveShipsManager
 	: public Simulator::cStrategy,
-	App::IMessageListener
+	public App::IMessageListener
 {
 public:
 	struct planetReinforcementStruct {
@@ -37,22 +37,12 @@ public:
 	static cPlayerDefensiveShipsManager* Get();
 
 	cGameDataUFO* SpawnPlayerDefensiveShip();
-
-	/// @brief Считает макс. число кораблей с учетом Т-индекса, всех городов и мягкого замедления после 50.
 	int GetMaxDefenders(cPlanetRecord* planet);
-
-	/// @brief Считает, сколько кораблей генерируется за один цикл (зависит от Т-индекса и числа городов).
 	int GetSpawnBatch(cPlanetRecord* planet);
-
-	/// @brief Считает время до следующего спавна (замедляется, если планету активно штурмуют и флот разбит).
 	int GetDynamicReinforceTime(cPlanetRecord* planet);
-
 	int GetDefendersOnPlanet(cPlanetRecord* planet);
-
 	void DecreaseDefendersOnPlanet(cPlanetRecord* planet);
-
 	void AddDefenderToPlanet(cPlanetRecord* planetToReinforce, int countToAdd = 1);
-
 	void ManagePlanetDefenders(cPlanetRecord* planet);
 
 private:
@@ -62,10 +52,7 @@ private:
 	int playerColonyDefenders;
 	int playerHomeworldDefenders;
 	int reinforceTime;
-	
-	// Порог, после которого рост максимального числа кораблей начинает плавно замедляться
 	int softCapThreshold;
-
 	queue<planetReinforcementStruct> planetsToReinforce;
 	eastl::map<cPlanetRecordPtr, int> planetDefenderShips;
 

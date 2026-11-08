@@ -174,20 +174,30 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
 	if (!empire) return 600.0f;
 
 	// 1. Базовое здоровье по Философии (Архетипу)
+		// 1. Базовое здоровье по Философии (Архетипу)
 	float baseHealth = 600.0f;
 	switch (empire->mArchetype) {
 		case Archetypes::kArchetypeWarrior:
+		case Archetypes::kArchetypePlayerWarrior:
 		case Archetypes::kArchetypeZealot:
+		case Archetypes::kArchetypePlayerZealot:
+		case Archetypes::kArchetypePlayerKnight:
 			baseHealth = 1000.0f;
 			break;
 		case Archetypes::kArchetypeScientist:
+		case Archetypes::kArchetypePlayerScientist:
 		case Archetypes::kArchetypeTrader:
+		case Archetypes::kArchetypePlayerTrader:
 		case Archetypes::kArchetypeEcologist:
+		case Archetypes::kArchetypePlayerEcologist:
 			baseHealth = 700.0f;
 			break;
 		case Archetypes::kArchetypeBard:
+		case Archetypes::kArchetypePlayerBard:
 		case Archetypes::kArchetypeShaman:
+		case Archetypes::kArchetypePlayerShaman:
 		case Archetypes::kArchetypeDiplomat:
+		case Archetypes::kArchetypePlayerDiplomat:
 		case Archetypes::kArchetypePlayerWanderer:
 			baseHealth = 250.0f;
 			break;

@@ -20,7 +20,6 @@ class cPlayerDefensiveShipsManager
 public:
 	static const uint32_t TYPE = 0xF5A81B20;
 	static const uint32_t NOUN_ID = TYPE;
-	bool WriteToXML(Simulator::XmlSerializer* xml) override;
 	cPlayerDefensiveShipsManager();
 	~cPlayerDefensiveShipsManager();
 

@@ -164,9 +164,6 @@ bool cPlayerDefensiveShipsManager::IsPlanetUnderAttack(cPlanetRecord* planet) {
 	if (!planet) return false;
 
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
-		if (planet->mbIsUnderAttack) {
-			return true;
-		}
 
 		cEmpire* localEmpire = nullptr;
 		if (planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {

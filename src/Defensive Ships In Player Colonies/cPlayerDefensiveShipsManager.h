@@ -26,7 +26,6 @@ public:
 	const char* GetName() const override;
 	bool Write(Simulator::ISerializerStream* stream) override;
 	bool Read(Simulator::ISerializerStream* stream) override;
-	bool WriteToXML(Simulator::XmlSerializer* xml) override;
 	void Update(int deltaTime, int deltaGameTime) override;
 	void OnModeEntered(uint32_t previousModeID, uint32_t newModeID) override;
 	bool HandleMessage(uint32_t messageID, void* msg) override;
@@ -69,11 +68,11 @@ private:
 	float configRebellionMultiplier;
 
 	struct planetReinforcementStruct {
-		Simulator::cPlanetRecordPtr planet;
+		Simulator::cPlanetRecord* planet;
 		int timeToReinforce;
 	};
 
 	eastl::queue<planetReinforcementStruct> planetsToReinforce;
-	eastl::map<Simulator::cPlanetRecordPtr, int> planetDefenderShips;
-	eastl::map<Simulator::cPlanetRecordPtr, int> planetColonyCounts;
+	eastl::map<Simulator::cPlanetRecord*, int> planetDefenderShips;
+	eastl::map<Simulator::cPlanetRecord*, int> planetColonyCounts;
 };

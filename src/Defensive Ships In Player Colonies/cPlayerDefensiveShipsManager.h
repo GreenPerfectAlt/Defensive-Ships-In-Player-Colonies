@@ -26,7 +26,6 @@ public:
 	bool Read(Simulator::ISerializerStream* stream) override;
 	void Update(int deltaTime, int deltaGameTime) override;
 	void OnModeEntered(uint32_t previousModeID, uint32_t newModeID) override;
-	bool WriteToXML(XmlSerializer* xml) override;
 	bool HandleMessage(uint32_t messageID, void* msg) override;
 
 	static cPlayerDefensiveShipsManager* Get();

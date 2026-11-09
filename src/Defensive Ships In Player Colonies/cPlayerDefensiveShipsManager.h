@@ -32,6 +32,7 @@ public:
 	static cPlayerDefensiveShipsManager* Get();
 
 	int GetMaxDefenders(Simulator::cPlanetRecord* planet);
+	int GetPeacePatrolCount(Simulator::cPlanetRecord* planet);
 	int GetColonyCount(Simulator::cPlanetRecord* planet);
 	int GetSpawnBatch(Simulator::cPlanetRecord* planet);
 	int GetDynamicReinforceTime(Simulator::cPlanetRecord* planet);
@@ -55,6 +56,7 @@ private:
 	int playerHomeworldDefenders;
 	int playerOutpostDefenders;
 	int softCapThreshold;
+	int reserveToMobilize;
 
 	struct planetReinforcementStruct {
 		Simulator::cPlanetRecordPtr planet;

@@ -28,6 +28,10 @@ bool cPlayerDefensiveShipsManager::Read(ISerializerStream* stream) {
 	return ClassSerializer(this, ATTRIBUTES).Read(stream);
 }
 
+bool cPlayerDefensiveShipsManager::WriteToXML(Simulator::XmlSerializer* writexml) {
+	return false;
+}
+
 Attribute cPlayerDefensiveShipsManager::ATTRIBUTES[] = {
 	Attribute()
 };

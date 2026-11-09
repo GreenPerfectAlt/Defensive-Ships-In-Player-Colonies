@@ -28,7 +28,7 @@ bool cPlayerDefensiveShipsManager::Read(ISerializerStream* stream) {
 	return ClassSerializer(this, ATTRIBUTES).Read(stream);
 }
 
-bool cPlayerDefensiveShipsManager::WriteToXML(XmlSerializer* xml) {
+bool cPlayerDefensiveShipsManager::WriteToXML(Simulator::XmlSerializer* xml) {
 	return true;
 }
 

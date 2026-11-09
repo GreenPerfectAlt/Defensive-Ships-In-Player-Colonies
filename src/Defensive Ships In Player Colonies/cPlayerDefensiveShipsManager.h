@@ -26,7 +26,7 @@ public:
 	const char* GetName() const override;
 	bool Write(Simulator::ISerializerStream* stream) override;
 	bool Read(Simulator::ISerializerStream* stream) override;
-	bool WriteToXML(Simulator::XmlSerializer* xml) override;
+	bool WriteToXML(XmlSerializer* xml) override;
 	void Update(int deltaTime, int deltaGameTime) override;
 	void OnModeEntered(uint32_t previousModeID, uint32_t newModeID) override;
 	bool HandleMessage(uint32_t messageID, void* msg) override;

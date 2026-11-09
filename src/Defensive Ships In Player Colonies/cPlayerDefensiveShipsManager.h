@@ -13,6 +13,7 @@ class cPlayerDefensiveShipsManager
 {
 public:
 	static const uint32_t TYPE = 0xF5A81B20;
+	static const uint32_t NOUN_ID = 0xF5A81B20;
 	
 	cPlayerDefensiveShipsManager();
 	~cPlayerDefensiveShipsManager();
@@ -24,6 +25,7 @@ public:
 	const char* GetName() const override;
 	bool Write(Simulator::ISerializerStream* stream) override;
 	bool Read(Simulator::ISerializerStream* stream) override;
+	bool WriteToXML(Simulator::XmlSerializer* writexml) override;
 	void Update(int deltaTime, int deltaGameTime) override;
 	void OnModeEntered(uint32_t previousModeID, uint32_t newModeID) override;
 	bool HandleMessage(uint32_t messageID, void* msg) override;

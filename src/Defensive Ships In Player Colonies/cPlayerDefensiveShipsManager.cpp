@@ -1,9 +1,7 @@
 #include "stdafx.h"
 #include "cPlayerDefensiveShipsManager.h"
-#include <Spore-Mod-Utils/Include/SporeModUtils.h>
 #include <cmath>
 
-using namespace SporeModUtils;
 using namespace Simulator;
 
 cPlayerDefensiveShipsManager::cPlayerDefensiveShipsManager()
@@ -113,7 +111,7 @@ int cPlayerDefensiveShipsManager::GetMaxDefenders(Simulator::cPlanetRecord* plan
 	}
 
 	int baseDefenders = 10;
-	if (PlanetUtils::Homeworld(planet)) {
+	if (planet->mIsHomeworld) {
 		baseDefenders = 20;
 	} else if (planet->mType == PlanetType::T0) {
 		baseDefenders = 3;
@@ -181,8 +179,7 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(Simulator::cPlanetRecord
 	}
 
 	if (targetEmpire != nullptr) {
-		Simulator::Archetypes archetype = ArchetypeUtils::GetBaseArchetype(targetEmpire->mArchetype);
-		switch (archetype) {
+		switch (targetEmpire->mArchetype) {
 		case Archetypes::kArchetypeWarrior:
 		case Archetypes::kArchetypeZealot:
 		case Archetypes::kArchetypePlayerKnight:

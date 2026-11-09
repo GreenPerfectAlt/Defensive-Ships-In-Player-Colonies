@@ -28,8 +28,8 @@ bool cPlayerDefensiveShipsManager::Read(ISerializerStream* stream) {
 	return ClassSerializer(this, ATTRIBUTES).Read(stream);
 }
 
-bool cPlayerDefensiveShipsManager::WriteToXML(Simulator::XmlSerializer* writexml) {
-	return false;
+bool cPlayerDefensiveShipsManager::WriteToXML(Simulator::XmlSerializer* xml) {
+	return true;
 }
 
 Attribute cPlayerDefensiveShipsManager::ATTRIBUTES[] = {
@@ -48,6 +48,8 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	instance = this;
 	elapsedTime = 0;
 	reserveToMobilize = 0;
+	configFleetMultiplier = 1.0f;
+	configRebellionMultiplier = 1.0f;
 
 	MessageManager.AddListener(this, SimulatorMessages::kMsgCombatantKilled);
 
@@ -89,46 +91,148 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	App::Property::GetFloat(propListSpaceCombat.get(), 0x05C2CBD6, reinforeTimeSeconds);
 	reinforceTime = static_cast<int>(reinforeTimeSeconds * 1000);
 
+	// Множитель размера флота из установщика (0.2x - 1.5x)
+	App::Property::GetFloat(propListSpaceCombat.get(), 0x07A1BC01, configFleetMultiplier);
+	if (configFleetMultiplier <= 0.05f || configFleetMultiplier > 5.0f) {
+		configFleetMultiplier = 1.0f;
+	}
+
+	// Множитель частоты восстаний из установщика (0.0x - 2.0x)
+	App::Property::GetFloat(propListSpaceCombat.get(), 0x07A1BC02, configRebellionMultiplier);
+	if (configRebellionMultiplier < 0.0f || configRebellionMultiplier > 5.0f) {
+		configRebellionMultiplier = 1.0f;
+	}
+
 	playerOutpostDefenders   = 5;
 	playerColonyDefenders    = 10;
 	playerHomeworldDefenders = 20;
-	reinforceTime            = 20 * 1000;
 	softCapThreshold         = 50;
 }
 
 void cPlayerDefensiveShipsManager::Dispose() {
 }
 
+int cPlayerDefensiveShipsManager::GetDynamicSoftCap(cEmpire* empire) {
+	if (!empire) return softCapThreshold;
+
+	int totalSystems = static_cast<int>(empire->mStars.size());
+	int weaponryRank = max(empire->GetWeaponryLevel(), 1); // 1 - 5 ранги капитана
+	int dynamicCap = 20 + static_cast<int>(totalSystems * 0.8f) + (weaponryRank * 3);
+
+	dynamicCap = static_cast<int>(round(static_cast<float>(dynamicCap) * configFleetMultiplier));
+	if (dynamicCap < 12) dynamicCap = 12;
+	if (dynamicCap > 120) dynamicCap = 120;
+
+	return dynamicCap;
+}
+
+float cPlayerDefensiveShipsManager::GetSpiceBasePrice(cPlanetRecord* planet) {
+	if (!planet || planet->mType == PlanetType::T0) return 0.0f;
+
+	uint32_t spiceID = planet->mSpiceGen.instanceID;
+	if (spiceID == 0) return 0.0f;
+
+	PropertyListPtr spiceProp;
+	if (PropManager.GetPropertyList(spiceID, 0x034D97FA, spiceProp) && spiceProp != nullptr) {
+		float baseCost = 0.0f;
+		if (App::Property::GetFloat(spiceProp.get(), 0x00B2CCCB, baseCost) && baseCost > 0.0f) {
+			return baseCost;
+		}
+	}
+
+	// Фолбэки стандартных пряностей
+	if (spiceID == 0x0289B841 || spiceID == 0x0289B842) return 3000.0f; // Фиолетовая, Розовая
+	if (spiceID == 0x0289B83F || spiceID == 0x0289B840) return 1200.0f; // Синяя, Зеленая
+	return 300.0f; // Желтая, Красная
+}
+
+int cPlayerDefensiveShipsManager::CalculateShipBuildCost(cEmpire* empire) {
+	if (!empire) return 1000;
+
+	int baseCost = 1000;
+	if (empire->mEmpireMoney > 2000000) {
+		baseCost = 2000; // Прогрессивный налог на сверхбогатство
+	}
+
+	int systems = static_cast<int>(empire->mStars.size());
+	float inflationMultiplier = 1.0f + (systems / 10) * 0.10f;
+
+	return static_cast<int>(round(static_cast<float>(baseCost) * inflationMultiplier));
+}
+
 bool cPlayerDefensiveShipsManager::IsPlanetUnderAttack(cPlanetRecord* planet) {
 	if (!planet) return false;
 
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
-		cEmpire* playerEmpire = GetPlayerEmpire();
-		uint32_t playerEmpireID = GetPlayerEmpireID();
+		if (planet->mbIsUnderAttack) {
+			return true;
+		}
+
+		cEmpire* localEmpire = nullptr;
+		if (planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {
+			localEmpire = StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID);
+		}
+		if (!localEmpire) localEmpire = GetPlayerEmpire();
+		if (!localEmpire) return false;
 
 		const auto& ufos = GetData<cGameDataUFO>();
 		for (const auto& ufo : ufos) {
-			if (ufo && ufo->mHealthPoints > 0 && ufo->mPoliticalID != 0 && ufo->mPoliticalID != playerEmpireID) {
-				// Игнорируем корабли-защитники (на случай союзных/скриптовых стражей)
+			if (ufo && ufo->mHealthPoints > 0 && ufo->mPoliticalID != 0 && ufo->mPoliticalID != localEmpire->GetEmpireID()) {
 				if (ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
 					continue;
 				}
 
 				cEmpire* otherEmpire = StarManager.GetEmpire(ufo->mPoliticalID);
-
-				// 1. Если это империя, с которой официально идёт война
-				if (otherEmpire && playerEmpire && RelationshipManager.IsAtWar(playerEmpire, otherEmpire)) {
+				if (otherEmpire && RelationshipManager.IsAtWar(localEmpire, otherEmpire)) {
 					return true;
 				}
-
-				// 2. Если у корабля чужой боевой ID, но он не принадлежит мирной империи (например, пираты/рейдеры)
 				if (!otherEmpire) {
-					return true;
+					return true; // Пираты или мятежники
 				}
 			}
 		}
 	}
 	return false;
+}
+
+bool cPlayerDefensiveShipsManager::ShouldTriggerRebellion(cPlanetRecord* planet, cEmpire* empire) {
+	if (!planet || !empire || configRebellionMultiplier <= 0.01f) {
+		return false;
+	}
+
+	// 1. Фанатики: нулевой риск бунта (иммунитет веры)
+	int arch = empire->mArchetype;
+	if (arch == 2 || arch == 12) { // Zealot / PlayerZealot
+		return false;
+	}
+
+	// 2. Проверка финансового кризиса или тяжелой разрухи гарнизона
+	bool isBankrupt = (empire->mEmpireMoney < 20000);
+	int currentDef = GetDefendersOnPlanet(planet);
+	int maxDef = GetMaxDefenders(planet);
+	bool heavyLosses = (currentDef < (maxDef / 2));
+
+	if (!isBankrupt && !heavyLosses) {
+		return false;
+	}
+
+	// 3. Расчет шанса по философии
+	float rebellionChance = 0.25f; // Базовый шанс (25%)
+	if (arch == 1 || arch == 11) {
+		rebellionChance = 0.50f; // Воины: военный переворот при слабости
+	} else if (arch == 5 || arch == 15) {
+		rebellionChance = 0.40f; // Торговцы: забастовка наемников
+	} else if (arch == 4 || arch == 6) {
+		rebellionChance = 0.15f; // Ученые и Экологи: высокая дисциплина
+	}
+
+	rebellionChance *= configRebellionMultiplier;
+
+	static int seedCounter = 0;
+	seedCounter++;
+	float roll = static_cast<float>((seedCounter * 37) % 100) / 100.0f;
+
+	return (roll < rebellionChance);
 }
 
 void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
@@ -137,8 +241,10 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 
 		if (GetCurrentContext() == SpaceContext::Planet) {
 			cPlanetRecord* activePlanet = GetActivePlanetRecord();
-			if (activePlanet && activePlanet->GetStarRecord() && activePlanet->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) {
-				// Динамический доспавн кораблей при возведении новой ратуши
+			if (activePlanet && activePlanet->GetStarRecord() && activePlanet->GetStarRecord()->mEmpireID != 0) {
+				cEmpire* targetEmpire = StarManager.GetEmpire(activePlanet->GetStarRecord()->mEmpireID);
+				if (!targetEmpire) targetEmpire = GetPlayerEmpire();
+
 				auto itCol = planetColonyCounts.find(activePlanet);
 				int oldColonies = (itCol != planetColonyCounts.end()) ? itCol->second : 0;
 
@@ -156,13 +262,12 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 								itDef->second += diff;
 							}
 							
-							// Списание 1000 спорлингов строго при постройке нового города
-							cEmpire* empire = GetPlayerEmpire();
+							int shipCost = CalculateShipBuildCost(targetEmpire);
 							for (int i = 0; i < diff; i++) {
-								if (empire && empire->mEmpireMoney >= 1000) {
-									empire->mEmpireMoney -= 1000;
+								if (targetEmpire && targetEmpire->GetEmpireID() == GetPlayerEmpireID() && targetEmpire->mEmpireMoney >= shipCost) {
+									targetEmpire->mEmpireMoney -= shipCost;
 								}
-								SpawnPlayerDefensiveShip();
+								SpawnDefensiveShip(activePlanet, targetEmpire, false);
 							}
 						}
 					}
@@ -170,14 +275,14 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 					GetColonyCount(activePlanet);
 				}
 
-				// Подъем зарезервированного гарнизона из ангаров при начале боя (по 3 корабля раз в 3 секунды)
 				static int lastMobilizeTime = 0;
 				if (elapsedTime < lastMobilizeTime) lastMobilizeTime = 0;
 
+				// Подъем резерва из ангаров: бесплатно, без списания казны
 				if (reserveToMobilize > 0 && (elapsedTime - lastMobilizeTime >= 3000) && IsPlanetUnderAttack(activePlanet)) {
 					int toDeploy = min(3, reserveToMobilize);
 					for (int i = 0; i < toDeploy; i++) {
-						SpawnPlayerDefensiveShip();
+						SpawnDefensiveShip(activePlanet, targetEmpire, true);
 					}
 					reserveToMobilize -= toDeploy;
 					lastMobilizeTime = elapsedTime;
@@ -217,8 +322,7 @@ bool cPlayerDefensiveShipsManager::HandleMessage(uint32_t messageID, void* msg) 
 		cGameDataUFO* ufo = object_cast<cGameDataUFO>(combatant);
 		if (ufo &&
 			GetCurrentContext() == SpaceContext::Planet &&
-			ufo->mUFOType == static_cast<int>(UfoType::Defender) &&
-			ufo->mPoliticalID == GetPlayerEmpireID()) {
+			ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
 			DecreaseDefendersOnPlanet(GetActivePlanetRecord());
 		}
 	}
@@ -229,75 +333,83 @@ cPlayerDefensiveShipsManager* cPlayerDefensiveShipsManager::Get() {
 	return instance;
 }
 
-float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet) {
-	cEmpire* empire = GetPlayerEmpire();
+float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet, cEmpire* empire) {
+	if (!empire) empire = GetPlayerEmpire();
 	if (!empire) return 600.0f;
 
-	float baseHealth = 600.0f;
-	switch (empire->mArchetype) {
-		case Archetypes::kArchetypeWarrior:
-		case Archetypes::kArchetypePlayerWarrior:
-		case Archetypes::kArchetypeZealot:
-		case Archetypes::kArchetypePlayerZealot:
-		case Archetypes::kArchetypePlayerKnight:
-			baseHealth = 1000.0f;
-			break;
-		case Archetypes::kArchetypeScientist:
-		case Archetypes::kArchetypePlayerScientist:
-		case Archetypes::kArchetypeTrader:
-		case Archetypes::kArchetypePlayerTrader:
-		case Archetypes::kArchetypeEcologist:
-		case Archetypes::kArchetypePlayerEcologist:
-			baseHealth = 700.0f;
-			break;
-		case Archetypes::kArchetypeBard:
-		case Archetypes::kArchetypePlayerBard:
-		case Archetypes::kArchetypeShaman:
-		case Archetypes::kArchetypePlayerShaman:
-		case Archetypes::kArchetypeDiplomat:
-		case Archetypes::kArchetypePlayerDiplomat:
-		case Archetypes::kArchetypePlayerWanderer:
-			baseHealth = 250.0f;
-			break;
-		default:
-			baseHealth = 600.0f;
-			break;
+	// 1. Динамическая база по рангу вооружения (1-5) и масштабу державы
+	int weaponryRank = max(empire->GetWeaponryLevel(), 1);
+	int totalStars = static_cast<int>(empire->mStars.size());
+	float imperialIndustrialBonus = min(static_cast<float>(totalStars) * 8.0f, 400.0f);
+	float dynamicBaseHealth = 450.0f + (static_cast<float>(weaponryRank) * 120.0f) + imperialIndustrialBonus;
+
+	// 2. Модификатор военной доктрины (по всем 10 архетипам)
+	float archetypeMultiplier = 1.0f;
+	int arch = empire->mArchetype;
+	if (arch == 1 || arch == 2 || arch == 3 || arch == 10 || arch == 11 || arch == 12) {
+		archetypeMultiplier = 1.35f; // Воин, Фанатик, Рыцарь, Грокс
+	} else if (arch == 4 || arch == 5 || arch == 6 || arch == 14 || arch == 15 || arch == 16) {
+		archetypeMultiplier = 1.10f; // Ученый, Торговец, Эколог
+	} else {
+		archetypeMultiplier = 0.85f; // Бард, Шаман, Дипломат, Странник
 	}
 
+	float baseHealth = dynamicBaseHealth * archetypeMultiplier;
 	if (!planet) return baseHealth;
 
+	// 3. Бонус от стоимости пряности (поддержка любых модов)
 	float spiceBonus = 0.0f;
-	uint32_t spiceID = planet->mSpiceGen.instanceID;
-	if (spiceID == 0x0289B841 || spiceID == 0x0289B842) { // Фиолетовая и Розовая
-		spiceBonus = 200.0f;
-	} else if (spiceID == 0x0289B83F || spiceID == 0x0289B840) { // Синяя и Зеленая
-		spiceBonus = 100.0f;
+	float spicePrice = GetSpiceBasePrice(planet);
+	if (spicePrice > 3500.0f) {
+		spiceBonus = 300.0f; // Экзотическая (Белая, Черная, Радужная)
+	} else if (spicePrice >= 2000.0f) {
+		spiceBonus = 200.0f; // Редкая (Фиолетовая, Розовая)
+	} else if (spicePrice >= 600.0f) {
+		spiceBonus = 100.0f; // Средняя (Синяя, Зеленая, Оранжевая)
 	}
 
+	// 4. Бонус турелей городов
 	float turretBonus = 0.0f;
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 		const auto& cities = GetData<cCity>();
 		for (const auto& city : cities) {
 			if (city) {
-				turretBonus += city->mTurrets.size() * 15.0f;
+				turretBonus += static_cast<float>(city->mTurrets.size()) * 15.0f;
 			}
 		}
 	}
 
-	return baseHealth + spiceBonus + turretBonus;
+	float totalHP = baseHealth + spiceBonus + turretBonus;
+
+	// 5. Модификатор состояния казны
+	if (empire->mEmpireMoney > 2000000) {
+		totalHP *= 1.20f; // Сверхфинансирование
+	} else if (empire->mEmpireMoney < 20000) {
+		totalHP *= 0.75f; // Финансовый кризис
+	}
+
+	return totalHP;
 }
 
-cGameDataUFO* cPlayerDefensiveShipsManager::SpawnPlayerDefensiveShip() {
-	int* pointerToPoliticalId = &GetPlayerEmpire()->mPoliticalID;
-	ResourceKey* ufoKey = &GetPlayerEmpire()->mUFOKey;
+cGameDataUFO* cPlayerDefensiveShipsManager::SpawnDefensiveShip(cPlanetRecord* planet, cEmpire* empire, bool canRebel) {
+	if (!empire) return nullptr;
+
+	int* pointerToPoliticalId = &empire->mPoliticalID;
+	ResourceKey* ufoKey = &empire->mUFOKey;
 
 	cGameDataUFO* ufo = STATIC_CALL(Address(ModAPI::ChooseAddress(0x0102bbb0, 0x0102acc0)), cGameDataUFO*, Args(UfoType, int*, ResourceKey*), Args(UfoType::Defender, pointerToPoliticalId, ufoKey));
 
 	if (ufo) {
-		cPlanetRecord* activePlanet = GetActivePlanetRecord();
-		float customHP = CalculateShipHealth(activePlanet);
+		cPlanetRecord* activePlanet = planet ? planet : GetActivePlanetRecord();
+		float customHP = CalculateShipHealth(activePlanet, empire);
 		ufo->mHealthPoints = customHP;
 		ufo->mMaxHealthPoints = customHP;
+
+		// Срабатывание мятежа (для игрока и NPC)
+		if (canRebel && ShouldTriggerRebellion(activePlanet, empire)) {
+			ufo->mPoliticalID = 0xFFFFFFFF; // Сепаратисты
+			ufo->mUFOType = static_cast<int>(UfoType::Bomber);
+		}
 	}
 
 	return ufo;
@@ -365,20 +477,30 @@ int cPlayerDefensiveShipsManager::GetMaxDefenders(cPlanetRecord* planet) {
 	else if (planet->mType == PlanetType::T0) baseDefenders = playerOutpostDefenders;
 
 	int rawTotal = baseDefenders + (colonyCount - 1) * stepBonus;
+	rawTotal = static_cast<int>(round(static_cast<float>(rawTotal) * configFleetMultiplier));
 
-	if (rawTotal > softCapThreshold) {
-		float excess = static_cast<float>(rawTotal - softCapThreshold);
-		int diminishedBonus = static_cast<int>(std::sqrt(excess) * 4.0f);
-		return softCapThreshold + diminishedBonus;
+	cEmpire* empire = nullptr;
+	if (planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {
+		empire = StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID);
+	}
+	if (!empire) empire = GetPlayerEmpire();
+
+	int dynamicCap = GetDynamicSoftCap(empire);
+
+	if (rawTotal > dynamicCap) {
+		float excess = static_cast<float>(rawTotal - dynamicCap);
+		int diminishedBonus = static_cast<int>(round(std::sqrt(excess) * 4.0f));
+		return dynamicCap + diminishedBonus;
 	}
 
-	return rawTotal;
+	return max(rawTotal, 1);
 }
 
 int cPlayerDefensiveShipsManager::GetSpawnBatch(cPlanetRecord* planet) {
 	if (!planet) return 1;
 
 	int colonyCount = GetColonyCount(planet);
+
 	int baseBatch = 1;
 	if (planet->mType == PlanetType::T1 || planet->mType == PlanetType::T2) baseBatch = 2;
 	else if (planet->mType == PlanetType::T3) baseBatch = 3;
@@ -404,10 +526,38 @@ int cPlayerDefensiveShipsManager::GetDynamicReinforceTime(cPlanetRecord* planet)
 	if (!planet) return reinforceTime;
 
 	int colonyCount = GetColonyCount(planet);
+
 	float speedMultiplier = 1.0f / (1.0f + (colonyCount - 1) * 0.05f);
 	if (speedMultiplier < 0.5f) speedMultiplier = 0.5f;
 
-	int dynamicTime = static_cast<int>(reinforceTime * speedMultiplier);
+	float spiceSpeedFactor = 1.0f;
+	float spicePrice = GetSpiceBasePrice(planet);
+	if (spicePrice > 3500.0f) {
+		spiceSpeedFactor = 0.55f;
+	} else if (spicePrice >= 2000.0f) {
+		spiceSpeedFactor = 0.70f;
+	} else if (spicePrice >= 600.0f) {
+		spiceSpeedFactor = 0.85f;
+	} else if (spicePrice > 0.0f) {
+		spiceSpeedFactor = 0.95f;
+	}
+
+	cEmpire* empire = nullptr;
+	if (planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {
+		empire = StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID);
+	}
+	if (!empire) empire = GetPlayerEmpire();
+
+	float treasurySpeedFactor = 1.0f;
+	if (empire) {
+		if (empire->mEmpireMoney > 2000000) {
+			treasurySpeedFactor = 0.75f;
+		} else if (empire->mEmpireMoney < 20000) {
+			treasurySpeedFactor = 2.20f;
+		}
+	}
+
+	int dynamicTime = static_cast<int>(round(static_cast<float>(reinforceTime) * speedMultiplier * spiceSpeedFactor * treasurySpeedFactor));
 
 	auto it = planetDefenderShips.find(planet);
 	if (it != planetDefenderShips.end()) {
@@ -416,12 +566,12 @@ int cPlayerDefensiveShipsManager::GetDynamicReinforceTime(cPlanetRecord* planet)
 			float missingRatio = 1.0f - (static_cast<float>(it->second) / static_cast<float>(maxDef));
 			if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
 				float siegePenalty = 1.0f + (missingRatio * 1.5f);
-				dynamicTime = static_cast<int>(dynamicTime * siegePenalty);
+				dynamicTime = static_cast<int>(round(static_cast<float>(dynamicTime) * siegePenalty));
 			}
 		}
 	}
 
-	return dynamicTime;
+	return max(dynamicTime, 2000);
 }
 
 int cPlayerDefensiveShipsManager::GetDefendersOnPlanet(cPlanetRecord* planet) {
@@ -438,7 +588,8 @@ void cPlayerDefensiveShipsManager::DecreaseDefendersOnPlanet(cPlanetRecord* plan
 		if (it->second > 0) {
 			it->second--;
 		}
-	} else {
+	}
+	else {
 		planetDefenderShips[cPlanetRecordPtr(planet)] = GetMaxDefenders(planet) - 1;
 		planetReinforcementStruct planetReinforcement;
 		planetReinforcement.planet = cPlanetRecordPtr(planet);
@@ -449,38 +600,41 @@ void cPlayerDefensiveShipsManager::DecreaseDefendersOnPlanet(cPlanetRecord* plan
 
 void cPlayerDefensiveShipsManager::AddDefenderToPlanet(cPlanetRecord* planetToReinforce, int countToAdd) {
 	auto it = planetDefenderShips.find(planetToReinforce);
-	if (it != planetDefenderShips.end() && planetToReinforce->GetStarRecord() && planetToReinforce->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) {
+	if (it != planetDefenderShips.end() && planetToReinforce->GetStarRecord() && planetToReinforce->GetStarRecord()->mEmpireID != 0) {
+		cEmpire* targetEmpire = StarManager.GetEmpire(planetToReinforce->GetStarRecord()->mEmpireID);
+		if (!targetEmpire) targetEmpire = GetPlayerEmpire();
+
 		int maxDef = GetMaxDefenders(planetToReinforce);
 		int actualSpawned = 0;
-
 		for (int i = 0; i < countToAdd; i++) {
 			if (it->second < maxDef) {
 				it->second++;
 				actualSpawned++;
-			} else {
+			}
+			else {
 				break;
 			}
 		}
-
 		if (it->second >= maxDef) {
 			planetDefenderShips.erase(it);
-		} else {
+		}
+		else {
 			planetReinforcementStruct planetReinforcement;
 			planetReinforcement.planet = cPlanetRecordPtr(planetToReinforce);
 			planetReinforcement.timeToReinforce = elapsedTime + GetDynamicReinforceTime(planetToReinforce);
 			planetsToReinforce.push(planetReinforcement);
 		}
-
 		if (GetCurrentContext() == SpaceContext::Planet && planetToReinforce == GetActivePlanetRecord()) {
-			cEmpire* empire = GetPlayerEmpire();
+			int shipCost = CalculateShipBuildCost(targetEmpire);
 			for (int i = 0; i < actualSpawned; i++) {
-				if (empire && empire->mEmpireMoney >= 1000) {
-					empire->mEmpireMoney -= 1000;
+				if (targetEmpire && targetEmpire->GetEmpireID() == GetPlayerEmpireID() && targetEmpire->mEmpireMoney >= shipCost) {
+					targetEmpire->mEmpireMoney -= shipCost;
 				}
-				SpawnPlayerDefensiveShip();
+				SpawnDefensiveShip(planetToReinforce, targetEmpire, false);
 			}
 		}
-	} else if (it != planetDefenderShips.end()) {
+	}
+	else if (it != planetDefenderShips.end()) {
 		planetDefenderShips.erase(it);
 	}
 }
@@ -489,6 +643,12 @@ void cPlayerDefensiveShipsManager::ManagePlanetDefenders(cPlanetRecord* planet) 
 	if (planet) {
 		GetColonyCount(planet);
 	}
+
+	cEmpire* targetEmpire = nullptr;
+	if (planet && planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {
+		targetEmpire = StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID);
+	}
+	if (!targetEmpire) targetEmpire = GetPlayerEmpire();
 
 	int totalMax = GetMaxDefenders(planet);
 	int peaceCount = GetPeacePatrolCount(planet);
@@ -500,6 +660,6 @@ void cPlayerDefensiveShipsManager::ManagePlanetDefenders(cPlanetRecord* planet) 
 	reserveToMobilize = max(currentTotal - activeSpawnCount, 0);
 
 	for (int i = 0; i < activeSpawnCount; i++) {
-		SpawnPlayerDefensiveShip();
+		SpawnDefensiveShip(planet, targetEmpire, false);
 	}
 }

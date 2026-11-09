@@ -68,11 +68,11 @@ private:
 	float configRebellionMultiplier;
 
 	struct planetReinforcementStruct {
-		Simulator::cPlanetRecord* planet;
+		cPlanetRecordPtr planet;
 		int timeToReinforce;
 	};
 
 	eastl::queue<planetReinforcementStruct> planetsToReinforce;
-	eastl::map<Simulator::cPlanetRecord*, int> planetDefenderShips;
-	eastl::map<Simulator::cPlanetRecord*, int> planetColonyCounts;
+	eastl::map<cPlanetRecordPtr, int> planetDefenderShips;
+	eastl::map<cPlanetRecordPtr, int> planetColonyCounts;
 };

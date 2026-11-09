@@ -103,10 +103,26 @@ bool cPlayerDefensiveShipsManager::IsPlanetUnderAttack(cPlanetRecord* planet) {
 	if (!planet) return false;
 
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
+		cEmpire* playerEmpire = GetPlayerEmpire();
+		uint32_t playerEmpireID = GetPlayerEmpireID();
+
 		const auto& ufos = GetData<cGameDataUFO>();
 		for (const auto& ufo : ufos) {
-			if (ufo && ufo->mHealthPoints > 0) {
-				if (ufo->mPoliticalID != 0 && ufo->mPoliticalID != GetPlayerEmpireID()) {
+			if (ufo && ufo->mHealthPoints > 0 && ufo->mPoliticalID != 0 && ufo->mPoliticalID != playerEmpireID) {
+				// Игнорируем корабли-защитники (на случай союзных/скриптовых стражей)
+				if (ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
+					continue;
+				}
+
+				cEmpire* otherEmpire = StarManager.GetEmpire(ufo->mPoliticalID);
+
+				// 1. Если это империя, с которой официально идёт война
+				if (otherEmpire && playerEmpire && RelationshipManager.IsAtWar(playerEmpire, otherEmpire)) {
+					return true;
+				}
+
+				// 2. Если у корабля чужой боевой ID, но он не принадлежит мирной империи (например, пираты/рейдеры)
+				if (!otherEmpire) {
 					return true;
 				}
 			}
@@ -154,13 +170,17 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 					GetColonyCount(activePlanet);
 				}
 
-				// Подъем зарезервированного гарнизона из ангаров при начале боя
-				if (reserveToMobilize > 0 && IsPlanetUnderAttack(activePlanet)) {
+				// Подъем зарезервированного гарнизона из ангаров при начале боя (по 3 корабля раз в 3 секунды)
+				static int lastMobilizeTime = 0;
+				if (elapsedTime < lastMobilizeTime) lastMobilizeTime = 0;
+
+				if (reserveToMobilize > 0 && (elapsedTime - lastMobilizeTime >= 3000) && IsPlanetUnderAttack(activePlanet)) {
 					int toDeploy = min(3, reserveToMobilize);
 					for (int i = 0; i < toDeploy; i++) {
 						SpawnPlayerDefensiveShip();
 					}
 					reserveToMobilize -= toDeploy;
+					lastMobilizeTime = elapsedTime;
 				}
 			}
 		}

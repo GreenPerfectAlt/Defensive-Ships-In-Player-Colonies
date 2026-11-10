@@ -1,59 +1,43 @@
-<?xml version="1.0" encoding="utf-8"?>
-<mod xmlns:xsi="http://w3.org" xmlns:xsd="http://w3.org"
-     UniqueId="Defensive-Ships-In-Player-Colonies"
-     DisplayName="Defensive Ships in Player Colonies"
-     InstallerMinVersion="1.1.0.0"
-     Description="Dynamically deploys defensive fleets, scalable planetary garrisons, 4X logistics, and colonial mutiny mechanics."
-     Author="Sadicto, GreenPerfectAlt"
-     Version="1.0.3"
-     Dlls="Defensive Ships In Player Colonies.dll">
-  <Components>
-    <!-- Выбор масштаба флота -->
-    <Component Unique="true">
-      <Option Name="Fleet Scaling: Normal (1.0x)" Default="true" Description="Balanced 4X gameplay: dynamic Soft-Cap based on stars and captain rank.">
-        <Files>
-          <File>Fleet_10x.package</File>
-        </Files>
-      </Option>
-      <Option Name="Fleet Scaling: Minimal (0.2x)" Description="Lightweight garrisons (10-15 vessels max) for low-end PCs.">
-        <Files>
-          <File>Fleet_02x.package</File>
-        </Files>
-      </Option>
-      <Option Name="Fleet Scaling: Low (0.5x)" Description="Small task forces (up to 25 vessels).">
-        <Files>
-          <File>Fleet_05x.package</File>
-        </Files>
-      </Option>
-      <Option Name="Fleet Scaling: Reinforced (1.3x)" Description="Fortified garrisons (up to 65 vessels).">
-        <Files>
-          <File>Fleet_13x.package</File>
-        </Files>
-      </Option>
-      <Option Name="Fleet Scaling: Ultra (1.5x)" Description="Massive sector armadas for powerful systems.">
-        <Files>
-          <File>Fleet_15x.package</File>
-        </Files>
-      </Option>
-    </Component>
+<mod unique="Defensive_Ships_In_Player_Colonies"
+     displayName="Defensive Ships in Player Colonies"
+     description="Dynamically deploys defensive fleets, scalable planetary garrisons, 4X logistics, and colonial mutiny mechanics."
+     installerSystemVersion="1.0.1.2"
+     hasCustomInstaller="true"
+     dllsBuild="$SPOREMOD_DLLS_BUILD"
+     isExperimental="$SPOREMOD_EXPERIMENTAL">
 
-    <!-- Настройка восстаний -->
-    <Component Unique="true">
-      <Option Name="Colonial Rebellions: Enabled" Default="true" Description="Garrisons risk defection during bankruptcy and heavy siege casualties (Zealots immune).">
-        <Files>
-          <File>Rebellion_Enabled.package</File>
-        </Files>
-      </Option>
-      <Option Name="Colonial Rebellions: Disabled" Description="No garrison mutinies under any circumstances.">
-        <Files>
-          <File>Rebellion_Disabled.package</File>
-        </Files>
-      </Option>
-      <Option Name="Colonial Rebellions: Anarchy (2.0x)" Description="Double rebellion frequency across the galaxy.">
-        <Files>
-          <File>Rebellion_Anarchy.package</File>
-        </Files>
-      </Option>
-    </Component>
-  </Components>
+    <prerequisite>Defensive Ships In Player Colonies.dll</prerequisite>
+
+    <componentGroup unique="FleetScalingGroup" displayName="Fleet Scaling (Масштаб оборонительного флота)">
+        <component unique="Fleet_10x"
+                   displayName="Fleet Scaling: Normal (1.0x)"
+                   description="Balanced 4X gameplay: dynamic Soft-Cap based on stars and captain rank."
+                   defaultChecked="true">Fleet_10x.package</component>
+        <component unique="Fleet_02x"
+                   displayName="Fleet Scaling: Minimal (0.2x)"
+                   description="Lightweight garrisons (10-15 vessels max) for low-end PCs.">Fleet_02x.package</component>
+        <component unique="Fleet_05x"
+                   displayName="Fleet Scaling: Low (0.5x)"
+                   description="Small task forces (up to 25 vessels).">Fleet_05x.package</component>
+        <component unique="Fleet_13x"
+                   displayName="Fleet Scaling: Reinforced (1.3x)"
+                   description="Fortified garrisons (up to 65 vessels).">Fleet_13x.package</component>
+        <component unique="Fleet_15x"
+                   displayName="Fleet Scaling: Ultra (1.5x)"
+                   description="Massive sector armadas for powerful systems.">Fleet_15x.package</component>
+    </componentGroup>
+
+    <componentGroup unique="ColonialRebellionsGroup" displayName="Colonial Rebellions (Мятежи гарнизона)">
+        <component unique="Rebellion_Enabled"
+                   displayName="Colonial Rebellions: Enabled (1.0x)"
+                   description="Garrisons risk defection during bankruptcy and heavy siege casualties (Zealots immune)."
+                   defaultChecked="true">Rebellion_Enabled.package</component>
+        <component unique="Rebellion_Disabled"
+                   displayName="Colonial Rebellions: Disabled (0.0x)"
+                   description="No garrison mutinies under any circumstances.">Rebellion_Disabled.package</component>
+        <component unique="Rebellion_Anarchy"
+                   displayName="Colonial Rebellions: Anarchy (2.0x)"
+                   description="Double rebellion frequency across the galaxy.">Rebellion_Anarchy.package</component>
+    </componentGroup>
+
 </mod>

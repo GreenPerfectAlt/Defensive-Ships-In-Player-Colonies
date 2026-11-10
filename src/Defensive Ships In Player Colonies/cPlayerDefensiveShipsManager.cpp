@@ -91,14 +91,20 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	App::Property::GetFloat(propListSpaceCombat.get(), 0x05C2CBD6, reinforeTimeSeconds);
 	reinforceTime = static_cast<int>(reinforeTimeSeconds * 1000);
 
-	// Множитель размера флота из установщика (0.2x - 1.5x)
-	App::Property::GetFloat(propListSpaceCombat.get(), 0x07A1BC01, configFleetMultiplier);
+	// Множитель размера флота из отдельного файла FleetConfig.prop (0.2x - 1.5x)
+	PropertyListPtr propListFleet;
+	if (PropManager.GetPropertyList(id(u"FleetConfig"), 0x02ae0c7e, propListFleet) && propListFleet != nullptr) {
+		App::Property::GetFloat(propListFleet.get(), 0x07A1BC01, configFleetMultiplier);
+	}
 	if (configFleetMultiplier <= 0.05f || configFleetMultiplier > 5.0f) {
 		configFleetMultiplier = 1.0f;
 	}
 
-	// Множитель частоты восстаний из установщика (0.0x - 2.0x)
-	App::Property::GetFloat(propListSpaceCombat.get(), 0x07A1BC02, configRebellionMultiplier);
+	// Множитель частоты восстаний из отдельного файла RebellionConfig.prop (0.0x - 2.0x)
+	PropertyListPtr propListRebellion;
+	if (PropManager.GetPropertyList(id(u"RebellionConfig"), 0x02ae0c7e, propListRebellion) && propListRebellion != nullptr) {
+		App::Property::GetFloat(propListRebellion.get(), 0x07A1BC02, configRebellionMultiplier);
+	}
 	if (configRebellionMultiplier < 0.0f || configRebellionMultiplier > 5.0f) {
 		configRebellionMultiplier = 1.0f;
 	}

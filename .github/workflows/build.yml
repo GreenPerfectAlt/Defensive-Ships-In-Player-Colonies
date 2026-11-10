@@ -218,27 +218,28 @@ jobs:
 
       - name: Build Configuration Packages
         run: |
-          mkdir -p config_project/SpaceCombat
+          mkdir -p config_project/SpaceCombat~
           
           # 1. Пакеты масштабирования флота (0.2x, 0.5x, 1.0x, 1.3x, 1.5x)
           for mult in 0.2 0.5 1.0 1.3 1.5; do
             tag=$(echo "$mult" | tr -d '.')
-            printf "0x07A1BC01 float %s\n0x07A1BC02 float 1.0\n" "$mult" > config_project/SpaceCombat/SpaceCombat.prop.txt
+            printf "float 0x07A1BC01 %s\nfloat 0x07A1BC02 1.0\n" "$mult" > config_project/SpaceCombat~/SpaceCombat.prop.txt
             java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Fleet_${tag}x.package"
           done
 
           # 2. Пакеты восстаний (Disabled = 0.0, Enabled = 1.0, Anarchy = 2.0)
           # Disabled
-          printf "0x07A1BC01 float 1.0\n0x07A1BC02 float 0.0\n" > config_project/SpaceCombat/SpaceCombat.prop.txt
+          printf "float 0x07A1BC01 1.0\nfloat 0x07A1BC02 0.0\n" > config_project/SpaceCombat~/SpaceCombat.prop.txt
           java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Rebellion_Disabled.package"
 
           # Enabled
-          printf "0x07A1BC01 float 1.0\n0x07A1BC02 float 1.0\n" > config_project/SpaceCombat/SpaceCombat.prop.txt
+          printf "float 0x07A1BC01 1.0\nfloat 0x07A1BC02 1.0\n" > config_project/SpaceCombat~/SpaceCombat.prop.txt
           java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Rebellion_Enabled.package"
 
           # Anarchy
-          printf "0x07A1BC01 float 1.0\n0x07A1BC02 float 2.0\n" > config_project/SpaceCombat/SpaceCombat.prop.txt
+          printf "float 0x07A1BC01 1.0\nfloat 0x07A1BC02 2.0\n" > config_project/SpaceCombat~/SpaceCombat.prop.txt
           java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Rebellion_Anarchy.package"
+
 
 
       - name: Find latest ModAPI DLLs build

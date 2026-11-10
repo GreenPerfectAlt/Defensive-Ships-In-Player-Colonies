@@ -3,15 +3,12 @@ name: Build Spore Mod
 on:
   push:
     tags:
-      - '*'           # Push events to every tag not containing /
+      - '*'
   workflow_dispatch:
 
 env:
-  # Build Packages Variables
   SPORE_MODDER_FX_FILE: 'SporeModder.FX.zip'
-
-  # Build DLLs Variables
-  SPORE_MODAPI_FILE: ' SporeModAPIdlls.zip '
+  SPORE_MODAPI_FILE: 'SporeModAPIdlls.zip'
 
 jobs:
   find-package-projects:
@@ -21,31 +18,27 @@ jobs:
       matrix: ${{ steps.projects-scan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Scan for non-empty projects in data folder
         id: projects-scan
         run: |
-          # Initialize an empty string to store the result
           directories=""
           index=0
 
-          # Use a while loop with redirection instead of piping to avoid subshell
-          while read dir; do
-              # Count the number of subdirectories inside each directory
-              subdir_count=$(find "$dir" -mindepth 1 -maxdepth 1 -type d | wc -l)
+          if [ -d "data/" ]; then
+            while read dir; do
+                subdir_count=$(find "$dir" -mindepth 1 -maxdepth 1 -type d | wc -l)
 
-              if [ "$subdir_count" -gt 0 ]; then
-                  # Append the directory to the result string
-                  if [ ! -z "$directories" ]; then
-              		  directories="$directories, "
-                    indices="$indices, "
-              	  fi
-                  directories="$directories {\"dir\": \"$dir\", \"index\": $index}"
-                  # Increment the index for each directory
-                  index=$((index + 1))
-              fi
-          done < <(find "data/" -mindepth 1 -maxdepth 1 -type d)
+                if [ "$subdir_count" -gt 0 ]; then
+                    if [ ! -z "$directories" ]; then
+                        directories="$directories, "
+                    fi
+                    directories="$directories {\"dir\": \"$dir\", \"index\": $index}"
+                    index=$((index + 1))
+                fi
+            done < <(find "data/" -mindepth 1 -maxdepth 1 -type d)
+          fi
 
-          # Print all directories in a single line
           directories="matrix={ \"project\": [ $directories ] }"
           echo "$directories"
           echo "$directories" >> $GITHUB_OUTPUT
@@ -57,24 +50,21 @@ jobs:
       matrix: ${{ steps.projects-scan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Scan for Visual Studio solutions in src folder
         id: projects-scan
         run: |
-          # Initialize an empty string to store the result
           solutions=""
           index=0
 
-          # Use a while loop with redirection instead of piping to avoid subshell
           while read dir; do
             while read file; do
-              # Append the directory to the result string
               if [ ! -z "$solutions" ]; then
-          	    solutions="$solutions, "
+                  solutions="$solutions, "
               fi
               solutions="$solutions {\"directory\": \"$dir\", \"sln\": \"$file\", \"index\": $index}"
-              # Increment the index for each directory
               index=$((index + 1))
-            done < <(find "$dir" -mindepth 1 -maxdepth 1 -type f -name "*.sln"  -printf "%f\n")
+            done < <(find "$dir" -mindepth 1 -maxdepth 1 -type f -name "*.sln" -printf "%f\n")
           done < <(find "src/" -mindepth 0 -maxdepth 1 -type d)
 
           solutions="matrix={ \"solution\": [ $solutions ] }"
@@ -90,13 +80,16 @@ jobs:
       matrix: ${{ fromJSON(needs.find-package-projects.outputs.matrix) }}
     steps:
       - run: echo "Building Package for Project ${{ matrix.project.dir }}"
+
       - uses: actions/checkout@v4
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '11'
           java-package: 'jre'
+
       - name: Setup SMFX
         uses: robinraju/release-downloader@v1
         with:
@@ -107,11 +100,14 @@ jobs:
           zipBall: false
           out-file-path: ''
           extract: true
+
       - run: mkdir -p Packages
+
       - name: Build SMFX Project
         run: |
           cd "SporeModder FX"
           java -jar SporeModderFX.jar pack "../${{ matrix.project.dir }}" "../Packages/"
+
       - name: Upload Packages
         uses: actions/upload-artifact@v4
         with:
@@ -150,7 +146,6 @@ jobs:
 
       - name: Move ModAPI DLL Library
         run: |
-          ls
           mkdir coreLibs
           mkdir mLibs
           cp SporeModAPI.lib coreLibs/SporeModAPI.lib
@@ -165,28 +160,16 @@ jobs:
       - name: Replace ModAPI Project in .sln File
         run: |
           cd "${{ matrix.solution.directory }}"
-          pwd
-          ls '${{ github.workspace }}'
-          ls '${{ github.workspace }}\Spore-ModAPI\'
-          ls '${{ github.workspace }}\Spore-ModAPI\Spore ModAPI\'
-
-          cat "${{ matrix.solution.sln }}"
-
           $re='Project\(("{[a-zA-Z0-9\-]+}")\) = "Spore ModAPI", ".+", ("{[a-zA-Z0-9\-]+}")'
           $target='Project($1) = "Spore ModAPI", "${{ github.workspace }}\Spore-ModAPI\Spore ModAPI\Spore ModAPI.vcxproj", $2'
-          (Get-Content '${{ matrix.solution.sln }}' -Raw) -replace $re,$target |
-            out-file -encoding utf-8 '${{ matrix.solution.sln }}'
-
-          echo ""
-          echo ""
-          cat "${{ matrix.solution.sln }}"
+          (Get-Content '${{ matrix.solution.sln }}' -Raw) -replace $re,$target | out-file -encoding utf-8 '${{ matrix.solution.sln }}'
 
       - name: Build C++ Project
         run: |
-         cd "${{ matrix.solution.directory }}"
-         msbuild "${{ matrix.solution.sln }}" /m "/p:Configuration=Release,Platform=x86,PlatformToolset=v143" `
-           "/p:SporeSDKPath=${{ github.workspace }}\Spore-ModAPI\,SporeLauncherPath=${{ github.workspace }}\" `
-           /clp:Summary /v:m
+          cd "${{ matrix.solution.directory }}"
+          msbuild "${{ matrix.solution.sln }}" /m "/p:Configuration=Release,Platform=x86,PlatformToolset=v143" `
+            "/p:SporeSDKPath=${{ github.workspace }}\Spore-ModAPI\,SporeLauncherPath=${{ github.workspace }}\" `
+            /clp:Summary /v:m
 
       - name: Upload DLL
         uses: actions/upload-artifact@v4
@@ -206,12 +189,68 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - run: mkdir -p "${{ github.workspace }}/Sporemod"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ github.workspace }}/Sporemod
+          merge-multiple: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '11'
+          java-package: 'jre'
+
+      - name: Setup SMFX
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: 'emd4600/SporeModder-FX'
+          tag: v2.2.24
+          fileName: ${{ env.SPORE_MODDER_FX_FILE }}
+          tarBall: false
+          zipBall: false
+          out-file-path: ''
+          extract: true
+
+      - name: Build Configuration Packages
+        run: |
+          mkdir -p config_project/SpaceCombat
+          
+          # 1. Пакеты масштабирования флота (0.2x, 0.5x, 1.0x, 1.3x, 1.5x)
+          for mult in 0.2 0.5 1.0 1.3 1.5; do
+            tag=$(echo "$mult" | tr -d '.')
+            echo "property 0x07A1BC01 float $mult" > config_project/SpaceCombat/SpaceCombat.prop.txt
+            echo "property 0x07A1BC02 float 1.0" >> config_project/SpaceCombat/SpaceCombat.prop.txt
+            java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Fleet_${tag}x.package"
+          done
+
+          # 2. Пакеты восстаний (Disabled = 0.0, Enabled = 1.0, Anarchy = 2.0)
+          # Disabled
+          echo "property 0x07A1BC01 float 1.0" > config_project/SpaceCombat/SpaceCombat.prop.txt
+          echo "property 0x07A1BC02 float 0.0" >> config_project/SpaceCombat/SpaceCombat.prop.txt
+          java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Rebellion_Disabled.package"
+
+          # Enabled
+          echo "property 0x07A1BC01 float 1.0" > config_project/SpaceCombat/SpaceCombat.prop.txt
+          echo "property 0x07A1BC02 float 1.0" >> config_project/SpaceCombat/SpaceCombat.prop.txt
+          java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Rebellion_Enabled.package"
+
+          # Anarchy
+          echo "property 0x07A1BC01 float 1.0" > config_project/SpaceCombat/SpaceCombat.prop.txt
+          echo "property 0x07A1BC02 float 2.0" >> config_project/SpaceCombat/SpaceCombat.prop.txt
+          java -jar "SporeModder FX/SporeModderFX.jar" pack config_project "${{ github.workspace }}/Sporemod/Rebellion_Anarchy.package"
+
       - name: Find latest ModAPI DLLs build
         id: find-latest-dlls-build
         uses: oprypin/find-latest-tag@v1
         with:
           repository: emd4600/Spore-ModAPI
           releases-only: true
+
       - name: Save ModAPI DLLs build in environment variable
         run: |
           version_text="${{ steps.find-latest-dlls-build.outputs.tag }}"
@@ -220,18 +259,11 @@ jobs:
           fi
           echo "SPOREMOD_DLLS_BUILD=$version_text" >> $GITHUB_ENV
 
-      - uses: actions/checkout@v4
-      - run: mkdir "${{ github.workspace }}/Sporemod"
-      - uses: actions/download-artifact@v4
-        with:
-          path: ${{ github.workspace }}/Sporemod
-          merge-multiple: true
-
-      # any tag that doesn't match v.X.X.X (with an optional single character path, eg v1.2.73b) will be marked as experimental
       - name: Check if version tag is experimental
-        run: echo "${{ github.ref_name }}" | grep -qE '^v?[[:digit:]]+(\.[[:digit:]]+)?(\.[[:digit:]]+)?[[:alpha:]]?$'
         id: test_experimental
         continue-on-error: true
+        run: echo "${{ github.ref_name }}" | grep -qE '^v?[[:digit:]]+(\.[[:digit:]]+)?(\.[[:digit:]]+)?[[:alpha:]]?$' || true
+
       - name: Save isExperimental on environment variable
         run: echo "SPOREMOD_EXPERIMENTAL=${{ steps.test_experimental.outcome != 'success' }}" >> $GITHUB_ENV
 
@@ -241,16 +273,20 @@ jobs:
           input-files: |
             ModInfo.xml
           enable-in-place: true
+
       - name: Copy ModInfo.xml file
         run: cp ModInfo.xml "${{ github.workspace }}/Sporemod/ModInfo.xml"
-      - run: ls ${{ github.workspace }}/Sporemod
 
-      - if: ${{ contains(github.ref_type, 'tag') }}
+      - name: Set Sporemod Name for Tag
+        if: ${{ contains(github.ref_type, 'tag') }}
         run: echo "SPOREMOD_NAME=${{ github.event.repository.name }}-${{ github.ref_name }}.sporemod" >> $GITHUB_ENV
-      - if: ${{ ! contains(github.ref_type, 'tag') }}
-        run: echo "SPOREMOD_NAME=${{ github.event.repository.name }}${{ github.ref_name }}-$(git rev-parse --short HEAD).sporemod" >> $GITHUB_ENV
 
-      - run: echo "DRAFT_RELEASE_NAME=$(echo "${{ github.event.repository.name }} ${{ github.ref_name }}" | tr '-' ' ')" >> $GITHUB_ENV
+      - name: Set Sporemod Name for Non-Tag
+        if: ${{ ! contains(github.ref_type, 'tag') }}
+        run: echo "SPOREMOD_NAME=${{ github.event.repository.name }}-${{ github.ref_name }}-$(git rev-parse --short HEAD).sporemod" >> $GITHUB_ENV
+
+      - name: Set Draft Release Name
+        run: echo "DRAFT_RELEASE_NAME=$(echo '${{ github.event.repository.name }} ${{ github.ref_name }}' | tr '-' ' ')" >> $GITHUB_ENV
 
       - name: Create .sporemod
         uses: thedoctor0/zip-release@0.7.6
@@ -280,31 +316,3 @@ jobs:
           retention-days: 30
           compression-level: 0
           path: ${{ env.SPOREMOD_NAME }}
-
-      - name: Build Configuration Packages
-        run: |
-          mkdir -p build_packages
-          
-          # 1. Пакеты множителей флота (0.2x, 0.5x, 1.0x, 1.3x, 1.5x)
-          for mult in 0.2 0.5 1.0 1.3 1.5; do
-            tag=$(echo "$mult" | tr -d '.')
-            echo "float 0x07A1BC01 $mult" > data/SpaceCombat/SpaceCombat.prop.txt
-            echo "float 0x07A1BC02 1.0" >> data/SpaceCombat/SpaceCombat.prop.txt
-            ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Fleet_${tag}x.package
-          done
-
-          # 2. Пакеты восстаний (Disabled = 0.0x, Enabled = 1.0x, Anarchy = 2.0x)
-          # Disabled
-          echo "float 0x07A1BC01 1.0" > data/SpaceCombat/SpaceCombat.prop.txt
-          echo "float 0x07A1BC02 0.0" >> data/SpaceCombat/SpaceCombat.prop.txt
-          ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Rebellion_Disabled.package
-
-          # Enabled
-          echo "float 0x07A1BC01 1.0" > data/SpaceCombat/SpaceCombat.prop.txt
-          echo "float 0x07A1BC02 1.0" >> data/SpaceCombat/SpaceCombat.prop.txt
-          ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Rebellion_Enabled.package
-
-          # Anarchy
-          echo "float 0x07A1BC01 1.0" > data/SpaceCombat/SpaceCombat.prop.txt
-          echo "float 0x07A1BC02 2.0" >> data/SpaceCombat/SpaceCombat.prop.txt
-          ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Rebellion_Anarchy.package

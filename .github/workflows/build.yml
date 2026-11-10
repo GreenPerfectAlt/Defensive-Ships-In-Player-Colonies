@@ -280,3 +280,31 @@ jobs:
           retention-days: 30
           compression-level: 0
           path: ${{ env.SPOREMOD_NAME }}
+
+      - name: Build Configuration Packages
+        run: |
+          mkdir -p build_packages
+          
+          # 1. Пакеты множителей флота (0.2x, 0.5x, 1.0x, 1.3x, 1.5x)
+          for mult in 0.2 0.5 1.0 1.3 1.5; do
+            tag=$(echo "$mult" | tr -d '.')
+            echo "float 0x07A1BC01 $mult" > data/SpaceCombat/SpaceCombat.prop.txt
+            echo "float 0x07A1BC02 1.0" >> data/SpaceCombat/SpaceCombat.prop.txt
+            ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Fleet_${tag}x.package
+          done
+
+          # 2. Пакеты восстаний (Disabled = 0.0x, Enabled = 1.0x, Anarchy = 2.0x)
+          # Disabled
+          echo "float 0x07A1BC01 1.0" > data/SpaceCombat/SpaceCombat.prop.txt
+          echo "float 0x07A1BC02 0.0" >> data/SpaceCombat/SpaceCombat.prop.txt
+          ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Rebellion_Disabled.package
+
+          # Enabled
+          echo "float 0x07A1BC01 1.0" > data/SpaceCombat/SpaceCombat.prop.txt
+          echo "float 0x07A1BC02 1.0" >> data/SpaceCombat/SpaceCombat.prop.txt
+          ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Rebellion_Enabled.package
+
+          # Anarchy
+          echo "float 0x07A1BC01 1.0" > data/SpaceCombat/SpaceCombat.prop.txt
+          echo "float 0x07A1BC02 2.0" >> data/SpaceCombat/SpaceCombat.prop.txt
+          ./SporeModder-FX/SporeModder.FX.CLI.exe pack data build_packages/Rebellion_Anarchy.package

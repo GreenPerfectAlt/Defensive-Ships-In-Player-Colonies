@@ -4,7 +4,6 @@
 #include <Spore\BasicIncludes.h>
 #include <Spore\Simulator\cCity.h>
 #include <EASTL\vector.h>
-#include <EASTL\queue.h>
 #include <EASTL\map.h>
 
 #define cPlayerDefensiveShipsManagerPtr intrusive_ptr<cPlayerDefensiveShipsManager>
@@ -60,6 +59,8 @@ public:
 	int GetDefendersOnPlanet(Simulator::cPlanetRecord* planet);
 
 private:
+	bool IsPlanetQueuedForReinforcement(Simulator::cPlanetRecord* planet) const;
+
 	static cPlayerDefensiveShipsManager* instance;
 
 	int elapsedTime;
@@ -72,12 +73,14 @@ private:
 	float configFleetMultiplier;
 	float configRebellionMultiplier;
 
+	Simulator::cPlanetRecordPtr lastActivePlanet;
+
 	struct planetReinforcementStruct {
-		cPlanetRecordPtr planet;
+		Simulator::cPlanetRecordPtr planet;
 		int timeToReinforce;
 	};
 
-	eastl::queue<planetReinforcementStruct> planetsToReinforce;
-	eastl::map<cPlanetRecordPtr, int> planetDefenderShips;
-	eastl::map<cPlanetRecordPtr, int> planetColonyCounts;
+	eastl::vector<planetReinforcementStruct> planetsToReinforce;
+	eastl::map<Simulator::cPlanetRecordPtr, int> planetDefenderShips;
+	eastl::map<Simulator::cPlanetRecordPtr, int> planetColonyCounts;
 };

@@ -50,48 +50,25 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	reserveToMobilize = 0;
 	configFleetMultiplier = 1.0f;
 	configRebellionMultiplier = 1.0f;
+	lastActivePlanet = nullptr;
+
+	playerOutpostDefenders   = 5;
+	playerColonyDefenders    = 10;
+	playerHomeworldDefenders = 20;
+	softCapThreshold         = 50;
 
 	MessageManager.AddListener(this, SimulatorMessages::kMsgCombatantKilled);
 
-	PropertyListPtr propListRelationship;
-	PropManager.GetPropertyList(0x4E5855B9, 0x0568de14, propListRelationship);
-
-	eastl::vector<int> readVector;
-	int maxDefenders = 5;
-	int minDefenders = 1;
-
-	if (App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69EB, readVector) && !readVector.empty()) {
-		maxDefenders = readVector[0];
-	}
-	if (App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69D8, readVector) && !readVector.empty()) {
-		minDefenders = readVector[0];
-	}
-	playerColonyDefenders = (maxDefenders + minDefenders + 1) / 2;
-
-	if (App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69F1, readVector) && !readVector.empty()) {
-		maxDefenders = readVector[0];
-	}
-	if (App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69E3, readVector) && !readVector.empty()) {
-		minDefenders = readVector[0];
-	}
-	playerHomeworldDefenders = (maxDefenders + minDefenders + 1) / 2;
-
-	if (App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69D0, readVector) && !readVector.empty()) {
-		maxDefenders = readVector[0];
-	}
-	if (App::Property::GetArrayInt32(propListRelationship.get(), 0x067B69C4, readVector) && !readVector.empty()) {
-		minDefenders = readVector[0];
-	}
-	playerOutpostDefenders = (maxDefenders + minDefenders + 1) / 2;
-
 	PropertyListPtr propListSpaceCombat;
-	PropManager.GetPropertyList(id(u"SpaceCombat"), 0x02ae0c7e, propListSpaceCombat);
+	if (PropManager.GetPropertyList(id(u"SpaceCombat"), 0x02ae0c7e, propListSpaceCombat) && propListSpaceCombat != nullptr) {
+		float reinforceTimeSeconds = 20.0f;
+		App::Property::GetFloat(propListSpaceCombat.get(), 0x05C2CBD6, reinforceTimeSeconds);
+		reinforceTime = static_cast<int>(reinforceTimeSeconds * 1000.0f);
+	} else {
+		reinforceTime = 20000;
+	}
 
-	float reinforeTimeSeconds = 20.0f;
-	App::Property::GetFloat(propListSpaceCombat.get(), 0x05C2CBD6, reinforeTimeSeconds);
-	reinforceTime = static_cast<int>(reinforeTimeSeconds * 1000);
-
-	// Множитель размера флота из отдельного файла FleetConfig.prop (0.2x - 1.5x)
+	// Множитель размера флота из отдельного файла FleetConfig.prop (0.2x - 2.0x)
 	PropertyListPtr propListFleet;
 	if (PropManager.GetPropertyList(id(u"FleetConfig"), 0x02ae0c7e, propListFleet) && propListFleet != nullptr) {
 		App::Property::GetFloat(propListFleet.get(), 0x07A1BC01, configFleetMultiplier);
@@ -108,14 +85,23 @@ void cPlayerDefensiveShipsManager::Initialize() {
 	if (configRebellionMultiplier < 0.0f || configRebellionMultiplier > 5.0f) {
 		configRebellionMultiplier = 1.0f;
 	}
-
-	playerOutpostDefenders   = 5;
-	playerColonyDefenders    = 10;
-	playerHomeworldDefenders = 20;
-	softCapThreshold         = 50;
 }
 
 void cPlayerDefensiveShipsManager::Dispose() {
+	MessageManager.RemoveListener(this, SimulatorMessages::kMsgCombatantKilled);
+	if (instance == this) {
+		instance = nullptr;
+	}
+}
+
+bool cPlayerDefensiveShipsManager::IsPlanetQueuedForReinforcement(cPlanetRecord* planet) const {
+	if (!planet) return false;
+	for (const auto& entry : planetsToReinforce) {
+		if (entry.planet.get() == planet) {
+			return true;
+		}
+	}
+	return false;
 }
 
 int cPlayerDefensiveShipsManager::GetDynamicSoftCap(cEmpire* empire) {
@@ -170,7 +156,6 @@ bool cPlayerDefensiveShipsManager::IsPlanetUnderAttack(cPlanetRecord* planet) {
 	if (!planet) return false;
 
 	if (GetCurrentContext() == SpaceContext::Planet && planet == GetActivePlanetRecord()) {
-
 		cEmpire* localEmpire = nullptr;
 		if (planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {
 			localEmpire = StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID);
@@ -190,7 +175,7 @@ bool cPlayerDefensiveShipsManager::IsPlanetUnderAttack(cPlanetRecord* planet) {
 					return true;
 				}
 				if (!otherEmpire) {
-					return true; // Пираты или мятежники
+					return true; // Пираты или мятежники (0xFFFFFFFF)
 				}
 			}
 		}
@@ -205,7 +190,7 @@ bool cPlayerDefensiveShipsManager::ShouldTriggerRebellion(cPlanetRecord* planet,
 
 	// 1. Фанатики: нулевой риск бунта (иммунитет веры)
 	int arch = empire->mArchetype;
-	if (arch == 2 || arch == 12) { // Zealot / PlayerZealot
+	if (arch == Archetypes::kArchetypeZealot || arch == Archetypes::kArchetypePlayerZealot) {
 		return false;
 	}
 
@@ -219,88 +204,106 @@ bool cPlayerDefensiveShipsManager::ShouldTriggerRebellion(cPlanetRecord* planet,
 		return false;
 	}
 
-	// 3. Расчет шанса по философии
+	// 3. Расчет шанса по философии (учтены все ID и для ИИ, и для Игрока)
 	float rebellionChance = 0.25f; // Базовый шанс (25%)
-	if (arch == 1 || arch == 11) {
+	if (arch == Archetypes::kArchetypeWarrior || arch == Archetypes::kArchetypePlayerWarrior) {
 		rebellionChance = 0.50f; // Воины: военный переворот при слабости
-	} else if (arch == 5 || arch == 15) {
+	} else if (arch == Archetypes::kArchetypeTrader || arch == Archetypes::kArchetypePlayerTrader) {
 		rebellionChance = 0.40f; // Торговцы: забастовка наемников
-	} else if (arch == 4 || arch == 6) {
+	} else if (arch == Archetypes::kArchetypeScientist || arch == Archetypes::kArchetypePlayerScientist ||
+	           arch == Archetypes::kArchetypeEcologist || arch == Archetypes::kArchetypePlayerEcologist) {
 		rebellionChance = 0.15f; // Ученые и Экологи: высокая дисциплина
 	}
 
 	rebellionChance *= configRebellionMultiplier;
 
-	static int seedCounter = 0;
-	seedCounter++;
-	float roll = static_cast<float>((seedCounter * 37) % 100) / 100.0f;
-
+	float roll = Math::randf();
 	return (roll < rebellionChance);
 }
 
 void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
-	if (IsSpaceGame()) {
-		elapsedTime += deltaGameTime;
+	if (!IsSpaceGame()) return;
 
-		if (GetCurrentContext() == SpaceContext::Planet) {
-			cPlanetRecord* activePlanet = GetActivePlanetRecord();
-			if (activePlanet && activePlanet->GetStarRecord() && activePlanet->GetStarRecord()->mEmpireID != 0) {
-				cEmpire* targetEmpire = StarManager.GetEmpire(activePlanet->GetStarRecord()->mEmpireID);
-				if (!targetEmpire) targetEmpire = GetPlayerEmpire();
+	elapsedTime += deltaGameTime;
 
-				auto itCol = planetColonyCounts.find(activePlanet);
-				int oldColonies = (itCol != planetColonyCounts.end()) ? itCol->second : 0;
+	if (GetCurrentContext() == SpaceContext::Planet) {
+		cPlanetRecord* activePlanet = GetActivePlanetRecord();
 
-				if (oldColonies > 0) {
-					int oldMax = GetMaxDefenders(activePlanet);
-					int currentCities = GetColonyCount(activePlanet);
-
-					if (currentCities > oldColonies) {
-						int newMax = GetMaxDefenders(activePlanet);
-						int diff = newMax - oldMax;
-
-						if (diff > 0) {
-							auto itDef = planetDefenderShips.find(activePlanet);
-							if (itDef != planetDefenderShips.end()) {
-								itDef->second += diff;
-							}
-							
-							int shipCost = CalculateShipBuildCost(targetEmpire);
-							for (int i = 0; i < diff; i++) {
-								if (targetEmpire && targetEmpire->GetEmpireID() == GetPlayerEmpireID() && targetEmpire->mEmpireMoney >= shipCost) {
-									targetEmpire->mEmpireMoney -= shipCost;
-								}
-								SpawnDefensiveShip(activePlanet, targetEmpire, false);
-							}
-						}
-					}
-				} else {
-					GetColonyCount(activePlanet);
-				}
-
-				static int lastMobilizeTime = 0;
-				if (elapsedTime < lastMobilizeTime) lastMobilizeTime = 0;
-
-				// Подъем резерва из ангаров: бесплатно, без списания казны
-				if (reserveToMobilize > 0 && (elapsedTime - lastMobilizeTime >= 3000) && IsPlanetUnderAttack(activePlanet)) {
-					int toDeploy = min(3, reserveToMobilize);
-					for (int i = 0; i < toDeploy; i++) {
-						SpawnDefensiveShip(activePlanet, targetEmpire, true);
-					}
-					reserveToMobilize -= toDeploy;
-					lastMobilizeTime = elapsedTime;
-				}
+		// Защита от переноса резерва при перелете на другую планету
+		if (activePlanet != lastActivePlanet.get()) {
+			if (lastActivePlanet != nullptr) {
+				reserveToMobilize = 0;
 			}
+			lastActivePlanet = activePlanet;
 		}
 
-		if (!planetsToReinforce.empty() && elapsedTime >= planetsToReinforce.front().timeToReinforce) {
-			cPlanetRecordPtr planet = planetsToReinforce.front().planet;
-			planetsToReinforce.pop();
+		uint32_t playerEmpID = GetPlayerEmpireID();
+		if (activePlanet && activePlanet->GetStarRecord() &&
+		    playerEmpID != 0 && activePlanet->GetStarRecord()->mEmpireID == playerEmpID) {
+
+			cEmpire* playerEmpire = GetPlayerEmpire();
+
+			auto itCol = planetColonyCounts.find(activePlanet);
+			int oldColonies = (itCol != planetColonyCounts.end()) ? itCol->second : 0;
+
+			if (oldColonies > 0) {
+				int oldMax = GetMaxDefenders(activePlanet);
+				int currentCities = GetColonyCount(activePlanet);
+
+				if (currentCities > oldColonies) {
+					int newMax = GetMaxDefenders(activePlanet);
+					int diff = newMax - oldMax;
+
+					if (diff > 0) {
+						auto itDef = planetDefenderShips.find(activePlanet);
+						if (itDef != planetDefenderShips.end()) {
+							itDef->second = min(itDef->second + diff, newMax);
+						}
+
+						int shipCost = CalculateShipBuildCost(playerEmpire);
+						for (int i = 0; i < diff; i++) {
+							if (playerEmpire && playerEmpire->mEmpireMoney >= shipCost) {
+								playerEmpire->mEmpireMoney -= shipCost;
+							}
+							SpawnDefensiveShip(activePlanet, playerEmpire, false);
+						}
+					}
+				}
+			} else {
+				GetColonyCount(activePlanet);
+			}
+
+			static int lastMobilizeTime = 0;
+			if (elapsedTime < lastMobilizeTime) lastMobilizeTime = 0;
+
+			// Подъем резерва из ангаров: бесплатно, без списания казны и без ложного мятежа готовых экипажей
+			if (reserveToMobilize > 0 && (elapsedTime - lastMobilizeTime >= 3000) && IsPlanetUnderAttack(activePlanet)) {
+				int toDeploy = min(3, reserveToMobilize);
+				for (int i = 0; i < toDeploy; i++) {
+					SpawnDefensiveShip(activePlanet, playerEmpire, false);
+				}
+				reserveToMobilize -= toDeploy;
+				lastMobilizeTime = elapsedTime;
+			}
+		}
+	} else {
+		// Игрок вышел на галактическую/звездную карту — сбрасываем локальный резерв орбиты
+		lastActivePlanet = nullptr;
+		reserveToMobilize = 0;
+	}
+
+	// Независимая обработка всех таймеров подкреплений без блокировки очереди
+	for (size_t i = 0; i < planetsToReinforce.size(); ) {
+		if (elapsedTime >= planetsToReinforce[i].timeToReinforce) {
+			cPlanetRecordPtr planet = planetsToReinforce[i].planet;
+			planetsToReinforce.erase(planetsToReinforce.begin() + i);
 
 			if (planet) {
 				int batchSize = GetSpawnBatch(planet.get());
 				AddDefenderToPlanet(planet.get(), batchSize);
 			}
+		} else {
+			++i;
 		}
 	}
 }
@@ -309,9 +312,8 @@ void cPlayerDefensiveShipsManager::OnModeEntered(uint32_t previousModeID, uint32
 	if (newModeID == GameModeIDs::kGameSpace) {
 		elapsedTime = 0;
 		reserveToMobilize = 0;
-		while (!planetsToReinforce.empty()) {
-			planetsToReinforce.pop();
-		}
+		lastActivePlanet = nullptr;
+		planetsToReinforce.clear();
 		planetDefenderShips.clear();
 		planetColonyCounts.clear();
 	}
@@ -319,14 +321,24 @@ void cPlayerDefensiveShipsManager::OnModeEntered(uint32_t previousModeID, uint32
 }
 
 bool cPlayerDefensiveShipsManager::HandleMessage(uint32_t messageID, void* msg) {
-	if (IsSpaceGame() && messageID == SimulatorMessages::kMsgCombatantKilled) {
+	if (IsSpaceGame() && messageID == SimulatorMessages::kMsgCombatantKilled && msg != nullptr) {
 		CombatantKilledMessage* msgInfo = static_cast<CombatantKilledMessage*>(msg);
 		cCombatant* combatant = msgInfo->GetCombatant();
 		cGameDataUFO* ufo = object_cast<cGameDataUFO>(combatant);
-		if (ufo &&
-			GetCurrentContext() == SpaceContext::Planet &&
-			ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
-			DecreaseDefendersOnPlanet(GetActivePlanetRecord());
+
+		if (ufo && GetCurrentContext() == SpaceContext::Planet &&
+		    ufo->mUFOType == static_cast<int>(UfoType::Defender)) {
+
+			cPlanetRecord* activePlanet = GetActivePlanetRecord();
+			uint32_t playerEmpID = GetPlayerEmpireID();
+
+			// Списываем защитника ТОЛЬКО если это корабль игрока на планете игрока
+			if (activePlanet && activePlanet->GetStarRecord() &&
+			    playerEmpID != 0 &&
+			    activePlanet->GetStarRecord()->mEmpireID == playerEmpID &&
+			    ufo->mPoliticalID == playerEmpID) {
+				DecreaseDefendersOnPlanet(activePlanet);
+			}
 		}
 	}
 	return true;
@@ -349,9 +361,14 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet, c
 	// 2. Модификатор военной доктрины (по всем 10 архетипам)
 	float archetypeMultiplier = 1.0f;
 	int arch = empire->mArchetype;
-	if (arch == 1 || arch == 2 || arch == 3 || arch == 10 || arch == 11 || arch == 12) {
+	if (arch == Archetypes::kArchetypeWarrior || arch == Archetypes::kArchetypePlayerWarrior ||
+	    arch == Archetypes::kArchetypeZealot  || arch == Archetypes::kArchetypePlayerZealot  ||
+	    arch == Archetypes::kArchetypeKnight  || arch == Archetypes::kArchetypePlayerKnight  ||
+	    arch == Archetypes::kArchetypeGrob) {
 		archetypeMultiplier = 1.35f; // Воин, Фанатик, Рыцарь, Грокс
-	} else if (arch == 4 || arch == 5 || arch == 6 || arch == 14 || arch == 15 || arch == 16) {
+	} else if (arch == Archetypes::kArchetypeScientist || arch == Archetypes::kArchetypePlayerScientist ||
+	           arch == Archetypes::kArchetypeTrader    || arch == Archetypes::kArchetypePlayerTrader    ||
+	           arch == Archetypes::kArchetypeEcologist || arch == Archetypes::kArchetypePlayerEcologist) {
 		archetypeMultiplier = 1.10f; // Ученый, Торговец, Эколог
 	} else {
 		archetypeMultiplier = 0.85f; // Бард, Шаман, Дипломат, Странник
@@ -408,10 +425,16 @@ cGameDataUFO* cPlayerDefensiveShipsManager::SpawnDefensiveShip(cPlanetRecord* pl
 		ufo->mHealthPoints = customHP;
 		ufo->mMaxHealthPoints = customHP;
 
-		// Срабатывание мятежа (для игрока и NPC)
+		// Срабатывание мятежа при постройке новых судов
 		if (canRebel && ShouldTriggerRebellion(activePlanet, empire)) {
 			ufo->mPoliticalID = 0xFFFFFFFF; // Сепаратисты
 			ufo->mUFOType = static_cast<int>(UfoType::Bomber);
+
+			// Так как корабль стал Bomber, его смерть не вызовет DecreaseDefendersOnPlanet в HandleMessage —
+			// сразу вычитаем дезертира из активного гарнизона планеты и ставим верфь на повторный заказ
+			if (activePlanet) {
+				DecreaseDefendersOnPlanet(activePlanet);
+			}
 		}
 	}
 
@@ -586,26 +609,37 @@ int cPlayerDefensiveShipsManager::GetDefendersOnPlanet(cPlanetRecord* planet) {
 }
 
 void cPlayerDefensiveShipsManager::DecreaseDefendersOnPlanet(cPlanetRecord* planet) {
+	if (!planet) return;
+
 	auto it = planetDefenderShips.find(planet);
 	if (it != planetDefenderShips.end()) {
 		if (it->second > 0) {
 			it->second--;
 		}
+	} else {
+		planetDefenderShips[cPlanetRecordPtr(planet)] = max(GetMaxDefenders(planet) - 1, 0);
 	}
-	else {
-		planetDefenderShips[cPlanetRecordPtr(planet)] = GetMaxDefenders(planet) - 1;
+
+	if (!IsPlanetQueuedForReinforcement(planet)) {
 		planetReinforcementStruct planetReinforcement;
 		planetReinforcement.planet = cPlanetRecordPtr(planet);
 		planetReinforcement.timeToReinforce = elapsedTime + GetDynamicReinforceTime(planet);
-		planetsToReinforce.push(planetReinforcement);
+		planetsToReinforce.push_back(planetReinforcement);
 	}
 }
 
 void cPlayerDefensiveShipsManager::AddDefenderToPlanet(cPlanetRecord* planetToReinforce, int countToAdd) {
+	if (!planetToReinforce) return;
+
 	auto it = planetDefenderShips.find(planetToReinforce);
-	if (it != planetDefenderShips.end() && planetToReinforce->GetStarRecord() && planetToReinforce->GetStarRecord()->mEmpireID != 0) {
-		cEmpire* targetEmpire = StarManager.GetEmpire(planetToReinforce->GetStarRecord()->mEmpireID);
-		if (!targetEmpire) targetEmpire = GetPlayerEmpire();
+	uint32_t playerEmpID = GetPlayerEmpireID();
+
+	if (it != planetDefenderShips.end() &&
+	    planetToReinforce->GetStarRecord() &&
+	    playerEmpID != 0 &&
+	    planetToReinforce->GetStarRecord()->mEmpireID == playerEmpID) {
+
+		cEmpire* targetEmpire = GetPlayerEmpire();
 
 		int maxDef = GetMaxDefenders(planetToReinforce);
 		int actualSpawned = 0;
@@ -613,42 +647,43 @@ void cPlayerDefensiveShipsManager::AddDefenderToPlanet(cPlanetRecord* planetToRe
 			if (it->second < maxDef) {
 				it->second++;
 				actualSpawned++;
-			}
-			else {
+			} else {
 				break;
 			}
 		}
+
 		if (it->second >= maxDef) {
 			planetDefenderShips.erase(it);
-		}
-		else {
+		} else if (!IsPlanetQueuedForReinforcement(planetToReinforce)) {
 			planetReinforcementStruct planetReinforcement;
 			planetReinforcement.planet = cPlanetRecordPtr(planetToReinforce);
 			planetReinforcement.timeToReinforce = elapsedTime + GetDynamicReinforceTime(planetToReinforce);
-			planetsToReinforce.push(planetReinforcement);
+			planetsToReinforce.push_back(planetReinforcement);
 		}
+
 		if (GetCurrentContext() == SpaceContext::Planet && planetToReinforce == GetActivePlanetRecord()) {
 			int shipCost = CalculateShipBuildCost(targetEmpire);
 			for (int i = 0; i < actualSpawned; i++) {
-				if (targetEmpire && targetEmpire->GetEmpireID() == GetPlayerEmpireID() && targetEmpire->mEmpireMoney >= shipCost) {
+				if (targetEmpire && targetEmpire->mEmpireMoney >= shipCost) {
 					targetEmpire->mEmpireMoney -= shipCost;
 				}
-				SpawnDefensiveShip(planetToReinforce, targetEmpire, false);
+				// Новые корабли с верфей во время осады/банкротства могут поднять мятеж (canRebel = true)
+				SpawnDefensiveShip(planetToReinforce, targetEmpire, true);
 			}
 		}
-	}
-	else if (it != planetDefenderShips.end()) {
+	} else if (it != planetDefenderShips.end()) {
 		planetDefenderShips.erase(it);
 	}
 }
 
 void cPlayerDefensiveShipsManager::ManagePlanetDefenders(cPlanetRecord* planet) {
-	if (planet) {
-		GetColonyCount(planet);
-	}
+	if (!planet) return;
+
+	GetColonyCount(planet);
+	lastActivePlanet = planet;
 
 	cEmpire* targetEmpire = nullptr;
-	if (planet && planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {
+	if (planet->GetStarRecord() && planet->GetStarRecord()->mEmpireID != 0) {
 		targetEmpire = StarManager.GetEmpire(planet->GetStarRecord()->mEmpireID);
 	}
 	if (!targetEmpire) targetEmpire = GetPlayerEmpire();

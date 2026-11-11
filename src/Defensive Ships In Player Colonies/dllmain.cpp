@@ -7,6 +7,7 @@ using namespace Simulator;
 void Initialize()
 {
 	cPlayerDefensiveShipsManager* playerDefensiveShipsManager = new cPlayerDefensiveShipsManager();
+	cSimulatorSystem::Get()->AddStrategy(playerDefensiveShipsManager, cPlayerDefensiveShipsManager::NOUN_ID);
 	ModAPI::AddSimulatorStrategy(playerDefensiveShipsManager, cPlayerDefensiveShipsManager::NOUN_ID);
 }
 
@@ -19,9 +20,21 @@ member_detour(GeneratePlanetHighLOD__detour, cSimPlanetHighLOD, void(cPlanet* pl
 	void detoured(cPlanet* planet) {
 		original_function(this, planet);
 		if (IsSpaceGame() && planet != nullptr && planet->mpPlanetRecord != nullptr &&
-		    planet->GetEmpire() != nullptr && planet->GetEmpire() == GetPlayerEmpire() &&
 		    cPlayerDefensiveShipsManager::Get() != nullptr) {
-			cPlayerDefensiveShipsManager::Get()->ManagePlanetDefenders(planet->mpPlanetRecord.get());
+
+			bool isPlayerPlanet = false;
+			if (planet->GetEmpire() != nullptr && planet->GetEmpire() == GetPlayerEmpire()) {
+				isPlayerPlanet = true;
+			}
+			else if (planet->mpPlanetRecord->GetStarRecord() != nullptr &&
+			         GetPlayerEmpireID() != 0 &&
+			         planet->mpPlanetRecord->GetStarRecord()->mEmpireID == GetPlayerEmpireID()) {
+				isPlayerPlanet = true;
+			}
+
+			if (isPlayerPlanet) {
+				cPlayerDefensiveShipsManager::Get()->ManagePlanetDefenders(planet->mpPlanetRecord.get());
+			}
 		}
 	}
 };

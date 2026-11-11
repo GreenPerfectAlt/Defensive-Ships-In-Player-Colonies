@@ -8,35 +8,35 @@
 
     <prerequisite>Defensive Ships In Player Colonies.dll</prerequisite>
 
-    <componentGroup unique="FleetScalingGroup" displayName="Fleet Scaling (Масштаб оборонительного флота)">
-        <component unique="Fleet_10x"
-                   displayName="Fleet Scaling: Normal (1.0x)"
-                   description="Balanced 4X gameplay: dynamic Soft-Cap based on stars and captain rank."
-                   defaultChecked="true">Fleet_10x.package</component>
+    <componentGroup unique="FleetScalingGroup" displayName="Fleet Scaling">
         <component unique="Fleet_02x"
-                   displayName="Fleet Scaling: Minimal (0.2x)"
+                   displayName="Minimal (0.2x)"
                    description="Lightweight garrisons (10-15 vessels max) for low-end PCs.">Fleet_02x.package</component>
         <component unique="Fleet_05x"
-                   displayName="Fleet Scaling: Low (0.5x)"
+                   displayName="Low (0.5x)"
                    description="Small task forces (up to 25 vessels).">Fleet_05x.package</component>
+        <component unique="Fleet_10x"
+                   displayName="Normal (1.0x)"
+                   description="Balanced 4X gameplay: dynamic Soft-Cap based on stars and captain rank."
+                   defaultChecked="true">Fleet_10x.package</component>
         <component unique="Fleet_13x"
-                   displayName="Fleet Scaling: Reinforced (1.3x)"
+                   displayName="Reinforced (1.3x)"
                    description="Fortified garrisons (up to 65 vessels).">Fleet_13x.package</component>
         <component unique="Fleet_15x"
-                   displayName="Fleet Scaling: Ultra (1.5x)"
+                   displayName="Ultra (1.5x)"
                    description="Massive sector armadas for powerful systems.">Fleet_15x.package</component>
     </componentGroup>
 
-    <componentGroup unique="ColonialRebellionsGroup" displayName="Colonial Rebellions (Мятежи гарнизона)">
+    <componentGroup unique="ColonialRebellionsGroup" displayName="Colonial Rebellions">
+        <component unique="Rebellion_Disabled"
+                   displayName="Disabled (0.0x)"
+                   description="No garrison mutinies under any circumstances.">Rebellion_Disabled.package</component>
         <component unique="Rebellion_Enabled"
-                   displayName="Colonial Rebellions: Enabled (1.0x)"
+                   displayName="Enabled (1.0x)"
                    description="Garrisons risk defection during bankruptcy and heavy siege casualties (Zealots immune)."
                    defaultChecked="true">Rebellion_Enabled.package</component>
-        <component unique="Rebellion_Disabled"
-                   displayName="Colonial Rebellions: Disabled (0.0x)"
-                   description="No garrison mutinies under any circumstances.">Rebellion_Disabled.package</component>
         <component unique="Rebellion_Anarchy"
-                   displayName="Colonial Rebellions: Anarchy (2.0x)"
+                   displayName="Anarchy (2.0x)"
                    description="Double rebellion frequency across the galaxy.">Rebellion_Anarchy.package</component>
     </componentGroup>
 

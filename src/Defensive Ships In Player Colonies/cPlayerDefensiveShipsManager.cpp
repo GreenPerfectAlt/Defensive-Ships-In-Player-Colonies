@@ -190,7 +190,7 @@ bool cPlayerDefensiveShipsManager::ShouldTriggerRebellion(cPlanetRecord* planet,
 
 	// 1. Фанатики: нулевой риск бунта (иммунитет веры)
 	int arch = empire->mArchetype;
-	if (arch == Archetypes::kArchetypeZealot || arch == Archetypes::kArchetypePlayerZealot) {
+	if (arch == 2 || arch == 12) {
 		return false;
 	}
 
@@ -206,12 +206,11 @@ bool cPlayerDefensiveShipsManager::ShouldTriggerRebellion(cPlanetRecord* planet,
 
 	// 3. Расчет шанса по философии (учтены все ID и для ИИ, и для Игрока)
 	float rebellionChance = 0.25f; // Базовый шанс (25%)
-	if (arch == Archetypes::kArchetypeWarrior || arch == Archetypes::kArchetypePlayerWarrior) {
+	if (arch == 1 || arch == 11) {
 		rebellionChance = 0.50f; // Воины: военный переворот при слабости
-	} else if (arch == Archetypes::kArchetypeTrader || arch == Archetypes::kArchetypePlayerTrader) {
+	} else if (arch == 5 || arch == 15) {
 		rebellionChance = 0.40f; // Торговцы: забастовка наемников
-	} else if (arch == Archetypes::kArchetypeScientist || arch == Archetypes::kArchetypePlayerScientist ||
-	           arch == Archetypes::kArchetypeEcologist || arch == Archetypes::kArchetypePlayerEcologist) {
+	} else if (arch == 4 || arch == 6 || arch == 14 || arch == 16) {
 		rebellionChance = 0.15f; // Ученые и Экологи: высокая дисциплина
 	}
 
@@ -257,7 +256,7 @@ void cPlayerDefensiveShipsManager::Update(int deltaTime, int deltaGameTime) {
 					if (diff > 0) {
 						auto itDef = planetDefenderShips.find(activePlanet);
 						if (itDef != planetDefenderShips.end()) {
-							itDef->second = min(itDef->second + diff, newMax);
+							itDef->second = eastl::min<int>(itDef->second + diff, newMax);
 						}
 
 						int shipCost = CalculateShipBuildCost(playerEmpire);
@@ -361,18 +360,14 @@ float cPlayerDefensiveShipsManager::CalculateShipHealth(cPlanetRecord* planet, c
 	// 2. Модификатор военной доктрины (по всем 10 архетипам)
 	float archetypeMultiplier = 1.0f;
 	int arch = empire->mArchetype;
-	if (arch == Archetypes::kArchetypeWarrior || arch == Archetypes::kArchetypePlayerWarrior ||
-	    arch == Archetypes::kArchetypeZealot  || arch == Archetypes::kArchetypePlayerZealot  ||
-	    arch == Archetypes::kArchetypeKnight  || arch == Archetypes::kArchetypePlayerKnight  ||
-	    arch == Archetypes::kArchetypeGrob) {
+	if (arch == 1 || arch == 2 || arch == 3 || arch == 10 || arch == 11 || arch == 12 || arch == 13) {
 		archetypeMultiplier = 1.35f; // Воин, Фанатик, Рыцарь, Грокс
-	} else if (arch == Archetypes::kArchetypeScientist || arch == Archetypes::kArchetypePlayerScientist ||
-	           arch == Archetypes::kArchetypeTrader    || arch == Archetypes::kArchetypePlayerTrader    ||
-	           arch == Archetypes::kArchetypeEcologist || arch == Archetypes::kArchetypePlayerEcologist) {
+	} else if (arch == 4 || arch == 5 || arch == 6 || arch == 14 || arch == 15 || arch == 16) {
 		archetypeMultiplier = 1.10f; // Ученый, Торговец, Эколог
 	} else {
 		archetypeMultiplier = 0.85f; // Бард, Шаман, Дипломат, Странник
 	}
+
 
 	float baseHealth = dynamicBaseHealth * archetypeMultiplier;
 	if (!planet) return baseHealth;

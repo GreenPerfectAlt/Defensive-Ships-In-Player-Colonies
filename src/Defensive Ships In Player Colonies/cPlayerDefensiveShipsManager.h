@@ -39,12 +39,14 @@ public:
 	static cPlayerDefensiveShipsManager* Get();
 
 	int GetDynamicSoftCap(Simulator::cEmpire* empire);
+	int GetDynamicMaxTreasury(Simulator::cEmpire* empire);
 	float GetSpiceBasePrice(Simulator::cPlanetRecord* planet);
 	int CalculateShipBuildCost(Simulator::cEmpire* empire);
 
 	int GetMaxDefenders(Simulator::cPlanetRecord* planet);
 	int GetPeacePatrolCount(Simulator::cPlanetRecord* planet);
 	int GetColonyCount(Simulator::cPlanetRecord* planet);
+	int GetTurretCount(Simulator::cPlanetRecord* planet);
 	int GetSpawnBatch(Simulator::cPlanetRecord* planet);
 	int GetDynamicReinforceTime(Simulator::cPlanetRecord* planet);
 	float CalculateShipHealth(Simulator::cPlanetRecord* planet, Simulator::cEmpire* empire);
@@ -59,9 +61,9 @@ public:
 	int GetDefendersOnPlanet(Simulator::cPlanetRecord* planet);
 
 private:
-	bool IsPlanetQueuedForReinforcement(Simulator::cPlanetRecord* planet) const;
-
 	static cPlayerDefensiveShipsManager* instance;
+
+	void ScheduleReinforcement(Simulator::cPlanetRecord* planet);
 
 	int elapsedTime;
 	int reinforceTime;
@@ -70,6 +72,7 @@ private:
 	int playerOutpostDefenders;
 	int softCapThreshold;
 	int reserveToMobilize;
+	int lastMobilizeTime;
 	float configFleetMultiplier;
 	float configRebellionMultiplier;
 
@@ -83,5 +86,5 @@ private:
 	eastl::vector<planetReinforcementStruct> planetsToReinforce;
 	eastl::map<cPlanetRecordPtr, int> planetDefenderShips;
 	eastl::map<cPlanetRecordPtr, int> planetColonyCounts;
+	eastl::map<cPlanetRecordPtr, int> planetTurretCounts;
 };
-
